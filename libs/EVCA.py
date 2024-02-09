@@ -1,6 +1,5 @@
+import argparse
 import os
-import time
-import torch
 import numpy as np
 import pandas as pd
 import torch_dct as dct
@@ -9,7 +8,7 @@ from libs.feature_extraction import feature_extraction
 from libs.write_block_info import write_block_info
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
 
-def EVCA(args,device):
+def EVCA(args: argparse.Namespace, device) -> None:
     width            = int(args.resolution.split('x')[0]) 
     height           = int(args.resolution.split('x')[1])
     

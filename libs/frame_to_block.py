@@ -1,8 +1,9 @@
+import argparse
 import torch
 import numpy as np
-from libs.weight_dct import weight_dct
-def frame_to_block(args, device):
-   
+
+def frame_to_block(args: argparse.Namespace, device) -> torch.Tensor:
+    
     stream          = open(args.input,  'rb')
     width           = int(args.resolution.split('x')[0]) 
     height          = int(args.resolution.split('x')[1])

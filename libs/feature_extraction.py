@@ -1,8 +1,9 @@
+import argparse
 import torch
 import numpy as np
 from libs.weight_dct import weight_dct
 
-def feature_extraction(args,DCTs,device):
+def feature_extraction(args: argparse.Namespace, DCTs, device):
     width            = int(args.resolution.split('x')[0]) 
     height           = int(args.resolution.split('x')[1])
     ######## Brightness
