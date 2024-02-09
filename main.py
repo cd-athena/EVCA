@@ -1,10 +1,13 @@
-import os
+print("Importing libraries...")
 import sys
 import time
 import argparse
 
-
-
+import torch 
+import torch_dct as dct
+from libs.EVCA import EVCA
+from libs.SITI import SITI
+print("Libraries imported successfully.\n\n")
 
 def print_custom_help():
     print("EVCA:    Enhanced Video Complexity Analyzer v1.0")
@@ -23,12 +26,8 @@ def print_custom_help():
     print("-bi/--block_info          Write block level features into a csv. Default is disabled")
     print("-pi/--plot_info           Plot per frame features. Default is disabled")
     print("-dp/--dpi                 Image quality of the saved output. Default is 100.")
-def main():
-    # Check if the help option is explicitly provided
-    if '-h' in sys.argv or '--help' in sys.argv:
-        print_custom_help()
-    else:
-        
+    
+def get_parser_arguments() -> argparse.Namespace:
         parser = argparse.ArgumentParser(add_help=False,)
         parser.add_argument('-i',  '--input', type=str, default='./0001.yuv')
         parser.add_argument('-m',  '--method', type=str, default='EVCA')
@@ -43,13 +42,16 @@ def main():
         parser.add_argument('-dp', '--dpi', type=int, default='100')
         parser.add_argument('-fi', '--filter', type=str, default='sobel')
         
-        args = parser.parse_args()
-        print("Importing libraries...")
-        import torch 
-        import torch_dct as dct
-        from libs.EVCA import EVCA
-        from libs.SITI import SITI
-        print("Libraries imported successfully.\n\n")
+        return parser.parse_args()
+    
+def main():
+    # Check if the help option is explicitly provided
+    if '-h' in sys.argv or '--help' in sys.argv:
+        print_custom_help()
+    else:
+        
+        args = get_parser_arguments()
+        
         # Your main script logic goes here
         print("EVCA: Enhanced Video Complexity Analyzer v1.0.")
         print("Start to extract features...")
@@ -58,7 +60,7 @@ def main():
         if args.method == 'EVCA':
             EVCA(args,device)
         elif args.method == 'VCA':
-            EVCA(args,device)    
+            EVCA(args,device)
         elif args.method == 'SITI':
             SITI(args,device)
         else:
