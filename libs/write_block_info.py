@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+
 def write_block_info(args,B_blocks,SC_blocks,TC_blocks,TC2_blocks):
     directory, file_name = os.path.split(args.csv)
     directory = './' if directory == '' else directory
@@ -11,8 +12,6 @@ def write_block_info(args,B_blocks,SC_blocks,TC_blocks,TC2_blocks):
     for i in range(len(np.arange(0,args.frames,args.sample_rate))):
         df_B_blocks[f'frame_{i:03d}'] = B_blocks[i, :]
     df_B_blocks.to_csv(f'{directory}/{file_name[:-4]}_B_blocks.csv', index=False)
-
-    
  
     SC_blocks         = SC_blocks.view(len(np.arange(0,args.frames,args.sample_rate)),-1)
     
@@ -23,8 +22,6 @@ def write_block_info(args,B_blocks,SC_blocks,TC_blocks,TC2_blocks):
         df_SC_blocks[f'frame_{i:03d}'] = SC_blocks[i, :]
     
     df_SC_blocks.to_csv(f'{directory}/{file_name[:-4]}_SC_blocks.csv', index=False)
-
-    
    
     
     TC_blocks         = TC_blocks.view(len(np.arange(0,args.frames,args.sample_rate))-1,-1)

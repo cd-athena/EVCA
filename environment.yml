@@ -1,0 +1,16 @@
+name: EVCA
+channels:
+  - pytorch
+  - defaults
+  - anaconda
+dependencies:
+  - numpy
+  - pandas
+  - python==3.11.7
+  - pytorch
+  - torchvision
+  - torchaudio
+  - matplotlib
+  - pip
+  - pip:
+    - torch-dct
