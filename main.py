@@ -3,10 +3,6 @@ import sys
 import time
 import argparse
 
-import torch 
-import torch_dct as dct
-from libs.EVCA import EVCA
-from libs.SITI import SITI
 print("Libraries imported successfully.\n\n")
 
 def print_custom_help():
@@ -51,7 +47,10 @@ def main():
     else:
         
         args = get_parser_arguments()
-        
+
+        import torch
+        from libs.EVCA import EVCA
+        from libs.SITI import SITI
         # Your main script logic goes here
         print("EVCA: Enhanced Video Complexity Analyzer v1.0.")
         print("Start to extract features...")
