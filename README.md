@@ -5,7 +5,10 @@
 - EVCA is developed in Python, ensuring compatibility with GPU processing,
 - EVCA enhances the definition of temporal complexity that was originally used in VCA.
 
-
+### Install Dependencies
+```
+pip3 install -r requirements.txt
+```
 ___
 
 Command Line options can be found at:
