@@ -1,5 +1,6 @@
 import argparse
 import os
+import torch
 import numpy as np
 import pandas as pd
 import torch_dct as dct
@@ -15,9 +16,17 @@ def EVCA(args: argparse.Namespace, input_list ,device) -> None:
     for file in input_list:
         args.input = file
         blocks           = frame_to_block(args,device)
-        DCTs             = dct.dct_2d(blocks)
+        if args.transform == 'DWT':
+            dwt = DWTForward().to(device)
+            yl, yh = dwt(blocks.unsqueeze(1).float())
+            yh = yh[0]
+            top_row = torch.cat((yl, yh[:, :, 0, :, :]), dim=3)
+            bottom_row = torch.cat((yh[:, :, 1, :, :], yh[:, :, 2, :, :]), dim=3)
+            DTs = torch.cat((top_row, bottom_row), dim=2)
+        else:
+            DTs = dct.dct_2d(blocks)
 
-        B_blocks,SC_blocks, TC_blocks,TC2_blocks = feature_extraction(args,DCTs,device)
+        B_blocks, SC_blocks, TC_blocks, TC2_blocks = feature_extraction(args,DTs,device)
 
         B_frame          = B_blocks.mean(dim=1)
 
