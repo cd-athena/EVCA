@@ -4,7 +4,9 @@ import torch
 import numpy as np
 import pandas as pd
 import torch_dct as dct
-from libs.frame_to_block import frame_to_block 
+import libs.dct_butterfly_torch as dct_b
+from pytorch_wavelets import DWTForward
+from libs.frame_to_block import frame_to_block
 from libs.feature_extraction import feature_extraction
 from libs.write_block_info import write_block_info
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
@@ -23,6 +25,8 @@ def EVCA(args: argparse.Namespace, input_list ,device) -> None:
             top_row = torch.cat((yl, yh[:, :, 0, :, :]), dim=3)
             bottom_row = torch.cat((yh[:, :, 1, :, :], yh[:, :, 2, :, :]), dim=3)
             DTs = torch.cat((top_row, bottom_row), dim=2)
+        elif args.transform == 'DCT_B':
+            DTs = dct_b.dct_32_2d(blocks.type(torch.int32))
         else:
             DTs = dct.dct_2d(blocks)
 
