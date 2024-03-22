@@ -31,7 +31,7 @@ def print_custom_help():
     print("-t /--transform           Discrete transform method. Default is DCT. [DCT, DWT, DCT_B] ")
     print("-fi/--filter              Edge detection filter. Default is Sobel filter. [sobel, canny] ")
     print("-i /--input               Raw YUV input file name.")
-    print("-d /--dir                 The directory of batch files.")
+    print("-d /--directory           Directory to multiple yuv files.")
     print("-r /--resolution          Set the resolution [w]x[h]. Default is 1920x1080.")
     print("-b /--block_size          Set the block size. Default is 32. [8, 16, 32]")
     print("-f /--frames              Maximum number of frames for features extraction.")
