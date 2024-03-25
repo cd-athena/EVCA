@@ -16,7 +16,7 @@ def frame_to_block(args: argparse.Namespace, device) -> torch.Tensor:
         elif args.pix_fmt == 'yuv444':
             stream.seek(frame * width * height * 3)
         Y = np.fromfile(stream, dtype=np.uint8, count=width * height).reshape(height, width)
-        Y = torch.from_numpy(Y[:height//args.block_size*args.block_size,:]).to(device)
+        Y = torch.from_numpy(Y[:height//args.block_size*args.block_size,:width//args.block_size*args.block_size]).to(device)
         b = Y.unfold(0, args.block_size, args.block_size).unfold(1, args.block_size, args.block_size)
         b = b.contiguous().view(-1, args.block_size, args.block_size)
         blocks.append(b)
