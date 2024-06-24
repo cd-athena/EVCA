@@ -2,14 +2,14 @@ import argparse
 import torch
 import numpy as np
 
-def frame_to_block(args: argparse.Namespace, device) -> torch.Tensor:
-    
-    stream          = open(args.input,  'rb')
-    width           = int(args.resolution.split('x')[0]) 
+
+def frame_to_block(args: argparse.Namespace, stream, start, end, device) -> torch.Tensor:
+
+    width           = int(args.resolution.split('x')[0])
     height          = int(args.resolution.split('x')[1])
-    frames          = np.arange(0,args.frames,args.sample_rate)  
+    frames          = np.arange(start, end, args.sample_rate)
     blocks          = []
-    
+
     for frame in frames:
         if args.pix_fmt ==  'yuv420':
             stream.seek(frame * width * height * 3//2)
