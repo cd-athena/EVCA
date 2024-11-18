@@ -13,4 +13,4 @@ dependencies:
   - matplotlib
   - pip
   - pip:
-    - torch-dct
+      - torch-dct

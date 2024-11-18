@@ -1,9 +1,8 @@
 print("Importing libraries...")
-import os
+import argparse
+import glob
 import sys
 import time
-import glob
-import argparse
 from pathlib import Path
 
 print("Libraries imported successfully.\n\n")
@@ -29,13 +28,14 @@ def print_custom_help():
     print("-h /--help                Show this help text and exit.")
     print("-m /--method              Feature extraction method. Default is EVCA. [VCA, EVCA, SITI] ")
     print("-t /--transform           Discrete transform method. Default is DCT. [DCT, DWT, DCT_B] ")
-    print("-fi/--filter              Edge detection filter. Default is Sobel filter. [sobel, canny] ")
+    print("-fi/--filter              Edge detection filter. Default is sobel filter. [sobel, canny] ")
     print("-i /--input               Raw YUV input file name.")
     print("-d /--directory           Directory to multiple yuv files.")
     print("-r /--resolution          Set the resolution [w]x[h]. Default is 1920x1080.")
     print("-b /--block_size          Set the block size. Default is 32 and must be a multiple of 4.")
     print("-f /--frames              Maximum number of frames for features extraction. 0 for all frames.")
-    print("-g /--gopsize             The number of frames that is processed simultaneously. Default is 32 and should be greater equal 2.")
+    print("-g /--gopsize             The number of frames that is processed simultaneously. "
+          "Default is 32 and should be greater equal 2.")
     print("-p /--pix_fmt             yuv format. Default is yuv420. [yuv420, yuv444] ")
     print("-s /--sample_rate         Frame subsampling. Default is 1 ")
     print("-c /--csv                 Name of csv to write features. Default is ./csv/test.csv")
@@ -50,7 +50,7 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-d', '--dir', type=str)
     parser.add_argument('-m', '--method', type=str, default='EVCA')
     parser.add_argument('-t', '--transform', type=str, default='DCT')
-    parser.add_argument('-r', '--resolution', type=str, default='3840x2160')
+    parser.add_argument('-r', '--resolution', type=str, default='1920x1080')
     parser.add_argument('-b', '--block_size', type=int, default='32')
     parser.add_argument('-f', '--frames', type=int, default='0')
     parser.add_argument('-c', '--csv', type=str, default='./csv/test.csv')
