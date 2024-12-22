@@ -136,14 +136,14 @@ def dct_8(src, shift):
         dst[8 + ptr_dst] = ((g_t8[8] * O[:, 0] + g_t8[9] * O[:, 1] + g_t8[10] * O[:, 2] + g_t8[11] * O[:, 3] + add)
                             >> shift).to(torch.int32)
         dst[3 * 8 + ptr_dst] = (
-                    (g_t8[24] * O[:, 0] + g_t8[25] * O[:, 1] + g_t8[26] * O[:, 2] + g_t8[27] * O[:, 3] + add)
-                    >> shift).to(torch.int32)
+                (g_t8[24] * O[:, 0] + g_t8[25] * O[:, 1] + g_t8[26] * O[:, 2] + g_t8[27] * O[:, 3] + add)
+                >> shift).to(torch.int32)
         dst[5 * 8 + ptr_dst] = (
-                    (g_t8[40] * O[:, 0] + g_t8[41] * O[:, 1] + g_t8[42] * O[:, 2] + g_t8[43] * O[:, 3] + add)
-                    >> shift).to(torch.int32)
+                (g_t8[40] * O[:, 0] + g_t8[41] * O[:, 1] + g_t8[42] * O[:, 2] + g_t8[43] * O[:, 3] + add)
+                >> shift).to(torch.int32)
         dst[7 * 8 + ptr_dst] = (
-                    (g_t8[56] * O[:, 0] + g_t8[57] * O[:, 1] + g_t8[58] * O[:, 2] + g_t8[59] * O[:, 3] + add)
-                    >> shift).to(torch.int32)
+                (g_t8[56] * O[:, 0] + g_t8[57] * O[:, 1] + g_t8[58] * O[:, 2] + g_t8[59] * O[:, 3] + add)
+                >> shift).to(torch.int32)
 
         ptr_src += 8
         ptr_dst += 1

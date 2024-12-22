@@ -1,21 +1,23 @@
 import argparse
 import os
-import torch
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import torch
 import torch_dct as dct
-import libs.dct_butterfly_torch as dct_b
 from pytorch_wavelets import DWTForward
-from libs.frame_to_block import frame_to_block
+
+import libs.dct_butterfly_torch as dct_b
 from libs.feature_extraction import feature_extraction, temporal_feature_extraction
-from libs.write_block_info import write_block_info
+from libs.frame_to_block import frame_to_block
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
-from pathlib import Path
+from libs.write_block_info import write_block_info
 
 
 def EVCA(args: argparse.Namespace, input_list, device) -> None:
-    width            = int(args.resolution.split('x')[0])
-    height           = int(args.resolution.split('x')[1])
+    width = int(args.resolution.split('x')[0])
+    height = int(args.resolution.split('x')[1])
 
     pix_size = 1.5
     if args.pix_fmt == 'yuv420':
@@ -25,7 +27,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
     steps = args.gopsize
     for file in input_list:
-        number_of_frames = Path(file).stat().st_size // (width * height * pix_size)
+        number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
         nframes = args.frames if args.frames != 0 else number_of_frames
         steps = steps if steps <= nframes else nframes
         args.input = file
@@ -38,7 +40,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_blocks = [[] for _ in range(4)]
 
         for f in range(0, nframes, steps):
-            blocks = frame_to_block(args, stream, f, min(nframes, f+steps), device)
+            blocks = frame_to_block(args, stream, f, min(nframes, f + steps), device)
             if args.transform == 'DWT':
                 dwt = DWTForward().to(device)
                 yl, yh = dwt(blocks.unsqueeze(1).float())
@@ -51,7 +53,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             else:
                 DTs = dct.dct_2d(blocks)
 
-            B_blocks, SC_blocks, energy = feature_extraction(args, DTs, steps, device)
+            B_blocks, SC_blocks, energy = feature_extraction(args, DTs, min(nframes - f, steps), device)
             TC_blocks, TC2_blocks = temporal_feature_extraction(args, f, SC_blocks, energy, last_SC, last_energy)
 
             last_energy = energy[-2:]
