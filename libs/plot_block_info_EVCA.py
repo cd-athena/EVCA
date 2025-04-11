@@ -5,23 +5,24 @@ import numpy as np
 import pandas as pd
 
 
-def plot_block_info_EVCA(args):
+def plot_block_info_EVCA(args, number_of_frames):
     if not os.path.exists('png/'):
         os.makedirs('png/', exist_ok=True)
 
     stream = open(args.input, 'rb')
     width = int(args.resolution.split('x')[0])
     height = int(args.resolution.split('x')[1])
-    frames = np.arange(0, args.frames, args.sample_rate)
+    n_frames = args.frames if args.frames != 0 else number_of_frames
+    frames = np.arange(0, n_frames, args.sample_rate)
     blocks = []
 
     for frame in frames:
         fig, axes = plt.subplots(1, 4, figsize=(12, 5))
 
         if args.pix_fmt == 'yuv420':
-            stream.seek(frame * width * height * 3 // 2)
+            stream.seek(int(frame) * int(width) * int(height) * 3 // 2)
         elif args.pix_fmt == 'yuv444':
-            stream.seek(frame * width * height * 3)
+            stream.seek(int(frame) * int(width) * int(height) * 3)
         Y = np.fromfile(stream, dtype=np.uint8, count=width * height).reshape(height, width)
         image1 = Y
 

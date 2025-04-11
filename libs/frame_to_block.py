@@ -12,9 +12,9 @@ def frame_to_block(args: argparse.Namespace, stream, start, end, device) -> torc
 
     for frame in frames:
         if args.pix_fmt == 'yuv420':
-            stream.seek(frame * width * height * 3 // 2)
+            stream.seek(int(frame) * int(width) * int(height) * 3 // 2)
         elif args.pix_fmt == 'yuv444':
-            stream.seek(frame * width * height * 3)
+            stream.seek(int(frame) * int(width) * int(height) * 3)
         Y = np.fromfile(stream, dtype=np.uint8, count=width * height).reshape(height, width)
         Y = torch.from_numpy(
             Y[:height // args.block_size * args.block_size, :width // args.block_size * args.block_size]).to(device)
