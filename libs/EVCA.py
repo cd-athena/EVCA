@@ -101,7 +101,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             args.block_info = 1
             print("To plot features we set -bp 1.")
 
+        number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
         if args.block_info:
-            write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3])
+            write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames)
         if args.plot_info:
-            plot_block_info_EVCA(args)
+            plot_block_info_EVCA(args, number_of_frames)

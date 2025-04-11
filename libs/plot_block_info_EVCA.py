@@ -5,14 +5,15 @@ import numpy as np
 import pandas as pd
 
 
-def plot_block_info_EVCA(args):
+def plot_block_info_EVCA(args, number_of_frames):
     if not os.path.exists('png/'):
         os.makedirs('png/', exist_ok=True)
 
     stream = open(args.input, 'rb')
     width = int(args.resolution.split('x')[0])
     height = int(args.resolution.split('x')[1])
-    frames = np.arange(0, args.frames, args.sample_rate)
+    n_frames = args.frames if args.frames != 0 else number_of_frames
+    frames = np.arange(0, n_frames, args.sample_rate)
     blocks = []
 
     for frame in frames:
