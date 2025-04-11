@@ -20,9 +20,9 @@ def plot_block_info_EVCA(args, number_of_frames):
         fig, axes = plt.subplots(1, 4, figsize=(12, 5))
 
         if args.pix_fmt == 'yuv420':
-            stream.seek(frame * width * height * 3 // 2)
+            stream.seek(int(frame) * int(width) * int(height) * 3 // 2)
         elif args.pix_fmt == 'yuv444':
-            stream.seek(frame * width * height * 3)
+            stream.seek(int(frame) * int(width) * int(height) * 3)
         Y = np.fromfile(stream, dtype=np.uint8, count=width * height).reshape(height, width)
         image1 = Y
 
