@@ -96,7 +96,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
         if not os.path.exists(directory):
             os.makedirs(directory, exist_ok=True)
-        df.to_csv(f'{directory}/{file_name[:-4]}_{args.method}.csv', index=False)
+        df.to_csv(f'{directory}/{file_name[:-4]}_{args.method}_{Path(file).name[:-4]}.csv', index=False)
         if args.block_info == 0 and args.plot_info == 1:
             args.block_info = 1
             print("To plot features we set -bp 1.")
