@@ -52,7 +52,7 @@ def SITI(args, input_list, device):
         TI_2 = np.insert(TI_2, 0, 0)
         TI_2 = np.insert(TI_2, 0, 0)
 
-        df = pd.DataFrame({'SI': SI, 'TI': TI, 'TI-2': TI_2})
+        df = pd.DataFrame({'SI': SI, 'TI': TI, 'TI2': TI_2})
         directory, file_name = os.path.split(args.csv)
         directory = './' if directory == '' else directory
         if not os.path.exists(directory):
