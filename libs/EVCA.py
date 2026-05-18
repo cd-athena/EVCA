@@ -13,6 +13,8 @@ from libs.feature_extraction import feature_extraction, temporal_feature_extract
 from libs.frame_to_block import frame_to_block
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
 from libs.write_block_info import write_block_info
+from libs.colorfulness import calculate_hasler_suesstrunk_colorfulness_yuv
+from libs.plot_block_info_EVCA_color import plot_block_info_EVCA_color
 
 
 def EVCA(args: argparse.Namespace, input_list, device) -> None:
@@ -36,7 +38,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         last_energy = torch.tensor([], device=device)
         last_SC = torch.tensor([], device=device)
 
-        out_frames = [[] for _ in range(4)]
+        out_frames = [[] for _ in range(5)] if args.color else [[] for _ in range(4)]
         out_blocks = [[] for _ in range(4)]
 
         for f in range(0, nframes, steps):
@@ -84,13 +86,63 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             out_blocks[1].extend(SC_blocks)
             out_blocks[2].extend(TC_blocks)
             out_blocks[3].extend(TC2_blocks)
+            
+            # if args.color:
+            #     luma_size = width * height
+            #     chroma_size = (width // 2) * (height // 2) if args.pix_fmt == 'yuv420' else luma_size
+            #     # jump to the U plane of current frame in the binary YUV stream
+            #     stream.seek(int(f * width * height * pix_size) + luma_size)
+            #     # read U and V planes sequentially
+            #     U = np.fromfile(stream, dtype=np.uint8, count=chroma_size)
+            #     V = np.fromfile(stream, dtype=np.uint8, count=chroma_size)
+                
+            #     # calculate and append
+            #     colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U, V, bit_depth=8)
+            #     out_frames[4].append(colorfulness_val)
+            if args.color:
+                luma_size = width * height
+                chroma_size = (width // 2) * (height // 2) if args.pix_fmt == 'yuv420' else luma_size
+                
+                # Derive the exact number of frames processed in this batch by checking B_frame.
+                # This guarantees the Colorfulness array length perfectly matches the base metrics.
+                actual_batch_len = len(B_frame)
+                
+                colorfulness_batch = []
+                # Iterate through each frame based on the actual frames processed
+                for step in range(actual_batch_len):
+                    # Account for frame subsampling if args.sample_rate > 1
+                    frame_idx = f + (step * args.sample_rate)
+                    
+                    # Seek to the U plane of the specific frame in the binary YUV stream
+                    stream.seek(int(frame_idx * width * height * pix_size) + luma_size)
+                    
+                    # Read U and V planes sequentially
+                    U = np.fromfile(stream, dtype=np.uint8, count=chroma_size)
+                    V = np.fromfile(stream, dtype=np.uint8, count=chroma_size)
+                    
+                    # Edge case safety: If we hit unexpected EOF, append 0.0 to prevent length mismatch
+                    if len(U) < chroma_size or len(V) < chroma_size:
+                        colorfulness_batch.append(0.0)
+                        continue
+                        
+                    colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U, V, bit_depth=8)
+                    colorfulness_batch.append(colorfulness_val)
+                    
+                # Extend the global list by the batch size (matching SC/TC/E)
+                out_frames[4].extend(colorfulness_batch)
 
         stream.close()
 
         if args.method == 'VCA':
-            df = pd.DataFrame({'B': out_frames[0], 'E': out_frames[1], 'h': out_frames[2], 'h2': out_frames[3]})
+            data = {'B': out_frames[0], 'E': out_frames[1], 'h': out_frames[2], 'h2': out_frames[3]}
         elif args.method == 'EVCA':
-            df = pd.DataFrame({'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3]})
+            data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3]}
+        
+        if args.color:
+            data['Colorfulness'] = out_frames[4]
+            
+        df = pd.DataFrame(data)
+        
         directory, file_name = os.path.split(args.csv)
         directory = './' if directory == '' else directory
 
@@ -105,4 +157,5 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         if args.block_info:
             write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames)
         if args.plot_info:
-            plot_block_info_EVCA(args, number_of_frames)
+            #plot_block_info_EVCA(args, number_of_frames)
+            plot_block_info_EVCA_color(args, number_of_frames)

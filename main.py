@@ -42,6 +42,7 @@ def print_custom_help():
     print("-bi/--block_info          Write block level features into a csv. Default is disabled")
     print("-pi/--plot_info           Plot per frame features. Default is disabled")
     print("-dp/--dpi                 Image quality of the saved output. Default is 100.")
+    print("--color                   Enable Hasler & Süsstrunk colorfulness analysis.")
 
 
 def get_parser_arguments() -> argparse.Namespace:
@@ -61,6 +62,7 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-pi', '--plot_info', type=int, default='0')
     parser.add_argument('-dp', '--dpi', type=int, default='100')
     parser.add_argument('-fi', '--filter', type=str, default='sobel')
+    parser.add_argument('--color', action='store_true', help='Enable Hasler & Süsstrunk colorfulness analysis.')
 
     return parser.parse_args()
 
@@ -77,7 +79,7 @@ def main():
         from libs.EVCA import EVCA
         from libs.SITI import SITI
         # Your main script logic goes here
-        print("EVCA: Enhanced Video Complexity Analyzer v1.0.")
+        print("EVCA: Enhanced Video Complexity Analyzer v1.1.")
 
         # Check input file(s) existence.
         input_list, success = check_existence(args)
