@@ -25,7 +25,10 @@ jobs:
     - name: Install Dependencies (CPU-Optimized)
       run: |
         python -m pip install --upgrade pip
-        
+
+        # remove hardcoded torch version from requirements.txt
+        sed -i '/^torch==/d' requirements.txt
+
         # CRITICAL OPTIMIZATION: Install CPU-only PyTorch first. 
         # This prevents pip from downloading the 2.5GB CUDA binaries, 
         # drastically reducing CI execution time and bandwidth.
