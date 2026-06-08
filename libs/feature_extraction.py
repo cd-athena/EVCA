@@ -18,8 +18,10 @@ def feature_extraction(args: argparse.Namespace, DCTs, nframes, device):
     ######## Energy of Blocks
     weights_dct = weight_dct(args, device)
     energy = torch.abs(DCTs * weights_dct.unsqueeze(0))
-    energy = energy.view(len(np.arange(0, nframes, args.sample_rate)),
-                         (width // args.block_size) * (height // args.block_size), args.block_size, args.block_size)
+    energy = energy.view(nframes,
+                         (width // args.block_size) * (height // args.block_size), 
+                         args.block_size, 
+                         args.block_size)
     SC_blocks = energy.mean(dim=[2, 3]) / (args.block_size * args.block_size)
 
     return B_blocks, SC_blocks, energy

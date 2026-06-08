@@ -1,3 +1,6 @@
 libs/__pycache__/*
 .vscode
 .DS_Store
+csv/*
+png/*
+.idea/*

@@ -42,6 +42,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_blocks = [[] for _ in range(4)]
 
         for f in range(0, nframes, steps):
+            actual_num_frames = len(range(f, min(nframes, f + steps), args.sample_rate))
+            
             blocks = frame_to_block(args, stream, f, min(nframes, f + steps), device)
             if args.transform == 'DWT':
                 dwt = DWTForward().to(device)
@@ -55,7 +57,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             else:
                 DTs = dct.dct_2d(blocks)
 
-            B_blocks, SC_blocks, energy = feature_extraction(args, DTs, min(nframes - f, steps), device)
+            B_blocks, SC_blocks, energy = feature_extraction(args, DTs, actual_num_frames, device)
             TC_blocks, TC2_blocks = temporal_feature_extraction(args, f, SC_blocks, energy, last_SC, last_energy)
 
             last_energy = energy[-2:]
