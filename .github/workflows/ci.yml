@@ -26,15 +26,14 @@ jobs:
       run: |
         python -m pip install --upgrade pip
 
-        # remove hardcoded torch version from requirements.txt
-        sed -i '/^torch==/d' requirements.txt
-
-        # CRITICAL OPTIMIZATION: Install CPU-only PyTorch first. 
-        # This prevents pip from downloading the 2.5GB CUDA binaries, 
-        # drastically reducing CI execution time and bandwidth.
+        # 1. Install CPU-only PyTorch first to avoid the 2.5GB CUDA download.
         pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+        # 2. Freeze the CPU versions into a constraints file. 
         pip freeze | grep -E '^(torch|torchvision|torchaudio)==' > constraints.txt
-        grep -vE '^(torch|torchvision|torchaudio)([=><!~]|$)' requirements.txt > req_clean.txt
+
+        # 3. Clean requirements.txt so we don't have hardcoded conflicts.
+        grep -vE '^(torch|torchvision|torchaudio|typing_extensions|typing-extensions|sympy)([=><!~]|$)' requirements.txt > req_clean.txt
 
         # Install the rest of the EVCA requirements
         pip install -r req_clean.txt -c constraints.txt
