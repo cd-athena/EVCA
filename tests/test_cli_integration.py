@@ -74,9 +74,9 @@ class TestEVCA_CLI(unittest.TestCase):
         self.assertIn('TI', df.columns, "SITI execution failed to write correct headers.")
 
     def test_04_colorfulness_flag(self):
-        """Test that the --color flag injects the new metric correctly."""
+        """Test that the --colorfulness flag injects the new metric correctly."""
         csv_out = './csv/test_color_flag.csv'
-        self.run_cli_command(['--color', '-c', csv_out])
+        self.run_cli_command(['-cf', '-c', csv_out])
         
         df = pd.read_csv(csv_out)
         self.assertIn('Colorfulness', df.columns, "Colorfulness flag did not append to CSV.")
@@ -90,7 +90,7 @@ class TestEVCA_CLI(unittest.TestCase):
         Tests sample_rate = 4.
         """
         csv_out = './csv/test_subsampling.csv'
-        self.run_cli_command(['-s', '4', '--color', '-c', csv_out])
+        self.run_cli_command(['-s', '4', '--colorfulness', '-c', csv_out])
         
         df = pd.read_csv(csv_out)
         expected_rows = self.frames // 4
@@ -102,7 +102,7 @@ class TestEVCA_CLI(unittest.TestCase):
     def test_06_plotting_flags(self):
         """Test the -pi and -pm visual plotting flags and artifact routing."""
         csv_out = './csv/test_plots.csv'
-        self.run_cli_command(['-pi', '1', '-pm', '1', '--color', '-c', csv_out])
+        self.run_cli_command(['-pi', '1', '-pm', '1', '--colorfulness', '-c', csv_out])
         
         # Check standard EVCA block-metric plot
         block_plot = './png/EVCA_frame_000.png'

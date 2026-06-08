@@ -4,3 +4,4 @@ libs/__pycache__/*
 csv/*
 png/*
 .idea/*
+tests/__pycache__
