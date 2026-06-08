@@ -40,9 +40,10 @@ def print_custom_help():
     print("-s /--sample_rate         Frame subsampling. Default is 1 ")
     print("-c /--csv                 Name of csv to write features. Default is ./csv/test.csv")
     print("-bi/--block_info          Write block level features into a csv. Default is disabled")
-    print("-pi/--plot_info           Plot per frame features. Default is disabled")
+    print("-pi/--plot_info           Plot per frame features for each frame. Default is disabled")
     print("-dp/--dpi                 Image quality of the saved output. Default is 100.")
     print("--color                   Enable Hasler & Süsstrunk colorfulness analysis.")
+    print("-pm/--plot_metrics        Plot per frame metrics over time. Default is disabled")    
 
 
 def get_parser_arguments() -> argparse.Namespace:
@@ -63,6 +64,7 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-dp', '--dpi', type=int, default='100')
     parser.add_argument('-fi', '--filter', type=str, default='sobel')
     parser.add_argument('--color', action='store_true', help='Enable Hasler & Süsstrunk colorfulness analysis.')
+    parser.add_argument('-pm', '--plot_metrics', type=int, default='0')
 
     return parser.parse_args()
 

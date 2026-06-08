@@ -14,7 +14,7 @@ from libs.frame_to_block import frame_to_block
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
 from libs.write_block_info import write_block_info
 from libs.colorfulness import calculate_hasler_suesstrunk_colorfulness_yuv
-from libs.plot_block_info_EVCA_color import plot_block_info_EVCA_color
+from libs.plot_frame_metrics_EVCA import plot_frame_metrics_EVCA
 
 
 def EVCA(args: argparse.Namespace, input_list, device) -> None:
@@ -87,18 +87,6 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             out_blocks[2].extend(TC_blocks)
             out_blocks[3].extend(TC2_blocks)
             
-            # if args.color:
-            #     luma_size = width * height
-            #     chroma_size = (width // 2) * (height // 2) if args.pix_fmt == 'yuv420' else luma_size
-            #     # jump to the U plane of current frame in the binary YUV stream
-            #     stream.seek(int(f * width * height * pix_size) + luma_size)
-            #     # read U and V planes sequentially
-            #     U = np.fromfile(stream, dtype=np.uint8, count=chroma_size)
-            #     V = np.fromfile(stream, dtype=np.uint8, count=chroma_size)
-                
-            #     # calculate and append
-            #     colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U, V, bit_depth=8)
-            #     out_frames[4].append(colorfulness_val)
             if args.color:
                 luma_size = width * height
                 chroma_size = (width // 2) * (height // 2) if args.pix_fmt == 'yuv420' else luma_size
@@ -157,5 +145,6 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         if args.block_info:
             write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames)
         if args.plot_info:
-            #plot_block_info_EVCA(args, number_of_frames)
-            plot_block_info_EVCA_color(args, number_of_frames)
+            plot_block_info_EVCA(args, number_of_frames)
+        if args.plot_metrics:
+            plot_frame_metrics_EVCA(args)
