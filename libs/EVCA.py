@@ -38,7 +38,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         last_energy = torch.tensor([], device=device)
         last_SC = torch.tensor([], device=device)
 
-        out_frames = [[] for _ in range(5)] if args.color else [[] for _ in range(4)]
+        out_frames = [[] for _ in range(5)] if args.colorfulness else [[] for _ in range(4)]
         out_blocks = [[] for _ in range(4)]
 
         for f in range(0, nframes, steps):
@@ -87,7 +87,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             out_blocks[2].extend(TC_blocks)
             out_blocks[3].extend(TC2_blocks)
             
-            if args.color:
+            if args.colorfulness:
                 luma_size = width * height
                 chroma_size = (width // 2) * (height // 2) if args.pix_fmt == 'yuv420' else luma_size
                 
@@ -126,7 +126,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         elif args.method == 'EVCA':
             data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3]}
         
-        if args.color:
+        if args.colorfulness:
             data['Colorfulness'] = out_frames[4]
             
         df = pd.DataFrame(data)
