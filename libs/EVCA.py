@@ -138,7 +138,13 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
         if not os.path.exists(directory):
             os.makedirs(directory, exist_ok=True)
-        df.to_csv(f'{directory}/{file_name[:-4]}_{args.method}_{Path(file).name[:-4]}.csv', index=False)
+        if args.dir:
+            final_csv_path = f'{directory}/{file_name[:-4]}_{args.method}_{Path(file).name[:-4]}.csv'
+        else:
+            final_csv_path = args.csv
+            
+        df.to_csv(final_csv_path, index=False)
+        
         if args.block_info == 0 and args.plot_info == 1:
             args.block_info = 1
             print("To plot features we set -bp 1.")
@@ -149,4 +155,4 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         if args.plot_info:
             plot_block_info_EVCA(args, number_of_frames)
         if args.plot_metrics:
-            plot_frame_metrics_EVCA(args)
+            plot_frame_metrics_EVCA(args, final_csv_path)
