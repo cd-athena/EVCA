@@ -43,7 +43,8 @@ def print_custom_help():
     print("-pi/--plot_info           Plot per frame features for each frame. Default is disabled")
     print("-dp/--dpi                 Image quality of the saved output. Default is 100.")
     print("-cf /--colorfulness       Enable Hasler & Süsstrunk M^(3) colorfulness analysis.")
-    print("-pm/--plot_metrics        Plot per frame metrics over time. Default is disabled")    
+    print("-pm/--plot_metrics        Plot per frame metrics over time. Default is disabled")   
+    print("-cc/--chroma_complexity   Enable Chroma (U,V) Complexity calculation.")   
 
 
 def get_parser_arguments() -> argparse.Namespace:
@@ -65,6 +66,7 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-fi', '--filter', type=str, default='sobel')
     parser.add_argument('-cf','--colorfulness', action='store_true')
     parser.add_argument('-pm', '--plot_metrics', type=int, default='0')
+    parser.add_argument('-cc', '--chroma_complexity', action='store_true')
 
     return parser.parse_args()
 

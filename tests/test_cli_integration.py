@@ -111,6 +111,16 @@ class TestEVCA_CLI(unittest.TestCase):
         # Check our new Frame Metrics plot in its dedicated directory
         frame_plot = './png/frame_metrics/test_plots_EVCA_dummy_integration_frame_metrics.png'
         self.assertTrue(os.path.exists(frame_plot), "Frame metrics plot was not generated in the correct target directory.")
+        
+    def test_07_chroma_complexity_flagg(self):
+        """Test the --chroma_complexity flat to enable calculation of the Spatial Chroma Complexity (SC_c)."""
+        csv_out = './csv/test_scc.csv'
+        self.run_cli_command(['--chroma_complexity', '-c', csv_out, '-s', '2',])
+        
+        df = pd.read_csv(csv_out)
+        self.assertIn(
+            'SC_c', df.columns,
+            f"Chroma complexity column 'SC_c' is missing from CSV headers: {df.columns}.")
 
 if __name__ == '__main__':
     unittest.main()

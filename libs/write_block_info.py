@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 
 
-def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of_frames):
+def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of_frames, SC_chroma_blocks=None):
     directory, file_name = os.path.split(args.csv)
-    directory = './' if directory == '' else directory
+    directory = './csv' if directory == '' else directory
 
     n_frames = args.frames if args.frames != 0 else number_of_frames
     B_blocks = torch.cat(B_blocks, dim=0)
@@ -18,6 +18,7 @@ def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of
         df_B_blocks[f'frame_{i:03d}'] = B_blocks[i, :]
     df_B_blocks.to_csv(f'{directory}/{file_name[:-4]}_B_blocks.csv', index=False)
 
+    # ----------------- SC_blocks -----------------
     SC_blocks = torch.cat(SC_blocks, dim=0)
     SC_blocks = SC_blocks.view(len(np.arange(0, n_frames, args.sample_rate)), -1)
 
@@ -30,6 +31,7 @@ def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of
 
     df_SC_blocks.to_csv(f'{directory}/{file_name[:-4]}_SC_blocks.csv', index=False)
 
+    # ----------------- TC_blocks -----------------
     TC_blocks = torch.cat(TC_blocks, dim=0)
     TC_blocks = TC_blocks.view(len(np.arange(0, n_frames, args.sample_rate)) - 1, -1)
 
@@ -46,6 +48,7 @@ def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of
 
     df_TC_blocks.to_csv(f'{directory}/{file_name[:-4]}_TC_blocks.csv', index=False)
 
+    # ----------------- TC2_blocks -----------------
     TC2_blocks = torch.cat(TC2_blocks, dim=0)
     TC2_blocks = TC2_blocks.view(len(np.arange(0, n_frames, args.sample_rate)) - 2, -1)
 
@@ -60,3 +63,17 @@ def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of
             df_TC2_blocks[f'frame_{i:03d}'] = TC_blocks[i - 2, :]
 
     df_TC2_blocks.to_csv(f'{directory}/{file_name[:-4]}_TC2_blocks.csv', index=False)
+
+    # ----------------- SC_chroma_blocks -----------------
+    if SC_chroma_blocks is not None:
+        SC_chroma_blocks = torch.cat(SC_chroma_blocks, dim=0)
+        SC_chroma_blocks = SC_chroma_blocks.view(len(np.arange(0, n_frames, args.sample_rate)), -1)
+        
+        SC_chroma_blocks = SC_chroma_blocks.cpu().numpy()
+        df_SC_chroma_blocks = pd.DataFrame(
+            columns=[f'frame_{i:03d}' for i in range(0, len(np.arange(0, n_frames, args.sample_rate)))])
+        
+        for i in range(len(np.arange(0, n_frames, args.sample_rate))):
+            df_SC_chroma_blocks[f'frame_{i:03d}'] = SC_chroma_blocks[i, :]
+            
+        df_SC_chroma_blocks.to_csv(f'{directory}/{file_name[:-4]}_SC_chroma_blocks.csv', index=False)

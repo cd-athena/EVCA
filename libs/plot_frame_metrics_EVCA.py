@@ -30,7 +30,10 @@ def plot_frame_metrics_EVCA(args, csv_path):
     # Dynamically include Colorfulness if it was calculated and saved to the CSV
     if 'Colorfulness' in df.columns:
         metrics_to_plot.append('Colorfulness')
-
+    
+    if 'SC_c' in df.columns:
+        metrics_to_plot.append('SC_c')
+    
     # Filter out any metrics that might be missing from the CSV to prevent KeyError
     valid_metrics = [m for m in metrics_to_plot if m in df.columns]
     

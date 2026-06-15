@@ -9,12 +9,14 @@ import torch_dct as dct
 from pytorch_wavelets import DWTForward
 
 import libs.dct_butterfly_torch as dct_b
-from libs.feature_extraction import feature_extraction, temporal_feature_extraction
+from libs.feature_extraction import feature_extraction, temporal_feature_extraction, chroma_energy_extraction
 from libs.frame_to_block import frame_to_block
+from libs.frame_to_chroma_block import extract_chroma_blocks
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
 from libs.write_block_info import write_block_info
 from libs.colorfulness import calculate_hasler_suesstrunk_colorfulness_yuv
 from libs.plot_frame_metrics_EVCA import plot_frame_metrics_EVCA
+from libs.weight_dct import weight_dct_by_size
 
 
 def EVCA(args: argparse.Namespace, input_list, device) -> None:
@@ -40,9 +42,33 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
         out_frames = [[] for _ in range(5)] if args.colorfulness else [[] for _ in range(4)]
         out_blocks = [[] for _ in range(4)]
-
+        
+        out_frames_chroma = []
+        out_blocks_chroma = []
+        
         for f in range(0, nframes, steps):
             actual_num_frames = len(range(f, min(nframes, f + steps), args.sample_rate))
+            
+            if args.chroma_complexity:
+                # chroma complexity
+                # 1. extract chroma blocks
+                U_blocks, V_blocks = extract_chroma_blocks(args, stream, f, min(nframes, f+steps), device)
+                # 2. apply DCT transforms (assums block_size=32 --> cb_size=16)
+                if args.transform == 'DCT_B':
+                    U_DTs = dct_b.dct_16_2d(U_blocks.type(torch.int32))
+                    V_DTs = dct_b.dct_16_2d(V_blocks.type(torch.int32))
+                else:
+                    U_DTs = dct.dct_2d(U_blocks)
+                    V_DTs = dct.dct_2d(V_blocks)
+                # 3. calculate chroma spatial complexity (block-level)
+                chroma_weights = weight_dct_by_size(args.block_size // 2, device)
+                SC_chroma_blocks = chroma_energy_extraction(args, U_DTs, V_DTs, actual_num_frames, chroma_weights)
+                # 4. collapse to frame-level metric
+                SC_chroma_frame = SC_chroma_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
+                SC_chroma_frame = SC_chroma_frame.cpu().numpy().ravel()
+                # 5. append chroma-metric to out_frames to be saved to the CSV
+                out_frames_chroma.extend(SC_chroma_frame)
+                out_blocks_chroma.extend(SC_chroma_blocks)
             
             blocks = frame_to_block(args, stream, f, min(nframes, f + steps), device)
             if args.transform == 'DWT':
@@ -126,7 +152,10 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         if args.method == 'VCA':
             data = {'B': out_frames[0], 'E': out_frames[1], 'h': out_frames[2], 'h2': out_frames[3]}
         elif args.method == 'EVCA':
-            data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3]}
+            if args.chroma_complexity:
+                data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3], 'SC_c': out_frames_chroma}
+            else:
+                data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3]}
         
         if args.colorfulness:
             data['Colorfulness'] = out_frames[4]
@@ -151,7 +180,10 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
         if args.block_info:
-            write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames)
+            if args.chroma_complexity:
+                write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames, out_blocks_chroma)
+            else:
+                write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames)
         if args.plot_info:
             plot_block_info_EVCA(args, number_of_frames)
         if args.plot_metrics:

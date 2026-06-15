@@ -45,3 +45,36 @@ def temporal_feature_extraction(args: argparse.Namespace, start_frame, SC_blocks
         TC2_blocks = h2_evca.mean(dim=[2, 3]) / (args.block_size * args.block_size)
 
     return TC_blocks, TC2_blocks
+
+def chroma_energy_extraction(args: argparse.Namespace,
+                             U_DCTs: torch.Tensor,
+                             V_DCTs: torch.Tensor,
+                             nframes: int,
+                             chroma_weight_dct: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the Chroma DCT Energy (E_c) for U and V channels and combines them.
+    E_c = (E_u + E_v) / 2
+    """
+    cb_size = args.block_size // 2
+    width, height = map(int, args.resolution.split('x'))
+    uv_w, uv_h = width // 2, height // 2
+    
+    num_blocks_per_frame = (uv_w // cb_size) * (uv_h // cb_size)
+    
+    # calc equivalents of AC coefficients.
+    # unsqueeze broadcasts the weights across all blocks instantly
+    energy_u = torch.abs(U_DCTs * chroma_weight_dct.unsqueeze(0))
+    energy_v = torch.abs(V_DCTs * chroma_weight_dct.unsqueeze(0))
+    
+    # reshape back to distinct frames and blocks
+    energy_u = energy_u.view(nframes, num_blocks_per_frame, cb_size, cb_size)
+    energy_v = energy_v.view(nframes, num_blocks_per_frame, cb_size, cb_size)
+    
+    # calc mean energy per block normalized by block area
+    sc_blocks_u = energy_u.mean(dim=[2, 3]) / (args.block_size * args.block_size)
+    sc_blocks_v = energy_v.mean(dim=[2, 3]) / (args.block_size * args.block_size)
+    
+    # combine U and V spatial complexities into single Chroma Spatial metric (SC_c)
+    SC_chroma_blocks = (sc_blocks_u + sc_blocks_v) * 0.5
+    
+    return SC_chroma_blocks

@@ -14,10 +14,10 @@ def plot_block_info_EVCA(args, number_of_frames):
     height = int(args.resolution.split('x')[1])
     n_frames = args.frames if args.frames != 0 else number_of_frames
     frames = np.arange(0, n_frames, args.sample_rate)
-    blocks = []
+    grid_h = int(height // args.block_size)
+    grid_w = int(width // args.block_size)
 
     for frame in frames:
-        fig, axes = plt.subplots(1, 4, figsize=(12, 5))
 
         if args.pix_fmt == 'yuv420':
             stream.seek(int(frame) * int(width) * int(height) * 3 // 2)
@@ -27,16 +27,31 @@ def plot_block_info_EVCA(args, number_of_frames):
         image1 = Y
 
         df = pd.read_csv(f'{args.csv[:-4]}_B_blocks.csv')
-        B = df[f'frame_{frame:03d}'].values.reshape(int(height // args.block_size), int(width // args.block_size))
+        B = df[f'frame_{frame:03d}'].values.reshape(grid_h, grid_w)
         image2 = B
 
         df = pd.read_csv(f'{args.csv[:-4]}_SC_blocks.csv')
-        SC = df[f'frame_{frame:03d}'].values.reshape(int(height // args.block_size), int(width // args.block_size))
+        SC = df[f'frame_{frame:03d}'].values.reshape(grid_h, grid_w)
         image3 = SC
 
         df = pd.read_csv(f'{args.csv[:-4]}_TC_blocks.csv')
-        TC = df[f'frame_{frame:03d}'].values.reshape(int(height // args.block_size), int(width // args.block_size))
+        TC = df[f'frame_{frame:03d}'].values.reshape(grid_h, grid_w)
         image4 = TC
+        
+        if args.chroma_complexity:
+            df = pd.read_csv(f'{args.csv[:-4]}_SC_chroma_blocks.csv')
+            SC_c = df[f'frame_{frame:03d}'].values.reshape(grid_h, grid_w)
+            image5 = SC_c
+            
+            fig, axes = plt.subplots(1, 5, figsize=(15, 5))
+            
+            axes[4].imshow(image5, cmap='gray')
+            axes[4].set_title('Spatial Chroma Complexity (U/V)')
+            axes[4].axis('off')  # Turn off axis
+            
+        else:
+            fig, axes = plt.subplots(1, 4, figsize=(12, 5))
+
 
         axes[0].imshow(image1, cmap='gray')
         axes[0].set_title(f'Orginal Frame')
