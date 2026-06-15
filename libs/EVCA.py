@@ -3,20 +3,17 @@ import os
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import torch
-import torch_dct as dct
 from pytorch_wavelets import DWTForward
 
-import libs.dct_butterfly_torch as dct_b
 from libs.feature_extraction import feature_extraction, temporal_feature_extraction, chroma_energy_extraction
-from libs.frame_to_block import frame_to_block
-from libs.frame_to_chroma_block import extract_chroma_blocks
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
 from libs.write_block_info import write_block_info
-from libs.colorfulness import calculate_hasler_suesstrunk_colorfulness_yuv
 from libs.plot_frame_metrics_EVCA import plot_frame_metrics_EVCA
 from libs.weight_dct import weight_dct_by_size
+from libs.video_loader import load_gop
+from libs.transforms import apply_luma_transform, apply_chroma_transform
+from libs.exporter import export_features_to_csv
 
 
 def EVCA(args: argparse.Namespace, input_list, device) -> None:
@@ -46,42 +43,45 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_frames_chroma = []
         out_blocks_chroma = []
         
+        dwt = None
+        if args.transform == 'DWT':
+            dwt = DWTForward().to(device)
+            
+        if args.chroma_complexity:
+            chroma_weights = weight_dct_by_size(args.block_size // 2, device)
+            
+        luma_size = width * height
+        if args.pix_fmt == 'yuv420':
+            chroma_size = (width // 2) * (height // 2)
+            uv_w, uv_h = width // 2, height // 2
+            cb_size = args.block_size // 2
+        elif args.pix_fmt == 'yuv444':
+            chroma_size = width * height
+            uv_w, uv_h = width, height
+            cb_size = args.block_size
+
         for f in range(0, nframes, steps):
             actual_num_frames = len(range(f, min(nframes, f + steps), args.sample_rate))
             
-            if args.chroma_complexity:
-                # chroma complexity
-                # 1. extract chroma blocks
-                U_blocks, V_blocks = extract_chroma_blocks(args, stream, f, min(nframes, f+steps), device)
-                # 2. apply DCT transforms (assums block_size=32 --> cb_size=16)
-                if args.transform == 'DCT_B':
-                    U_DTs = dct_b.dct_16_2d(U_blocks.type(torch.int32))
-                    V_DTs = dct_b.dct_16_2d(V_blocks.type(torch.int32))
-                else:
-                    U_DTs = dct.dct_2d(U_blocks)
-                    V_DTs = dct.dct_2d(V_blocks)
-                # 3. calculate chroma spatial complexity (block-level)
-                chroma_weights = weight_dct_by_size(args.block_size // 2, device)
+            # 1. Load Data
+            Y_blocks, U_blocks, V_blocks, colorfulness_batch = load_gop(
+                args, stream, f, min(nframes, f + steps), device, 
+                width, height, pix_size, luma_size, chroma_size, uv_w, uv_h, cb_size
+            )
+            
+            # 2. Chroma Processing
+            if args.chroma_complexity and U_blocks is not None:
+                U_DTs, V_DTs = apply_chroma_transform(args, U_blocks, V_blocks)
+                    
                 SC_chroma_blocks = chroma_energy_extraction(args, U_DTs, V_DTs, actual_num_frames, chroma_weights)
-                # 4. collapse to frame-level metric
                 SC_chroma_frame = SC_chroma_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
                 SC_chroma_frame = SC_chroma_frame.cpu().numpy().ravel()
-                # 5. append chroma-metric to out_frames to be saved to the CSV
+                
                 out_frames_chroma.extend(SC_chroma_frame)
                 out_blocks_chroma.extend(SC_chroma_blocks)
             
-            blocks = frame_to_block(args, stream, f, min(nframes, f + steps), device)
-            if args.transform == 'DWT':
-                dwt = DWTForward().to(device)
-                yl, yh = dwt(blocks.unsqueeze(1).float())
-                yh = yh[0]
-                top_row = torch.cat((yl, yh[:, :, 0, :, :]), dim=3)
-                bottom_row = torch.cat((yh[:, :, 1, :, :], yh[:, :, 2, :, :]), dim=3)
-                DTs = torch.cat((top_row, bottom_row), dim=2)
-            elif args.transform == 'DCT_B':
-                DTs = dct_b.dct_32_2d(blocks.type(torch.int32))
-            else:
-                DTs = dct.dct_2d(blocks)
+            # 3. Luma Processing
+            DTs = apply_luma_transform(args, Y_blocks, dwt_model=dwt)
 
             B_blocks, SC_blocks, energy = feature_extraction(args, DTs, actual_num_frames, device)
             TC_blocks, TC2_blocks = temporal_feature_extraction(args, f, SC_blocks, energy, last_SC, last_energy)
@@ -89,8 +89,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             last_energy = energy[-2:]
             last_SC = SC_blocks[-2:]
 
+            # 4. Aggregation
             B_frame = B_blocks.mean(dim=1)
-
             SC_frame = SC_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
             TC_frame = TC_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
             TC2_frame = TC2_blocks.sum(dim=[1]) / ((width // args.block_size) * (height) // args.block_size)
@@ -99,6 +99,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             SC_frame = SC_frame.cpu().numpy().ravel()
             TC_frame = TC_frame.cpu().numpy().ravel()
             TC2_frame = TC2_frame.cpu().numpy().ravel()
+            
             if f == 0:
                 TC_frame = np.insert(TC_frame, 0, 0)
                 TC2_frame = np.insert(TC2_frame, 0, 0)
@@ -116,64 +117,14 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             out_blocks[3].extend(TC2_blocks)
             
             if args.colorfulness:
-                luma_size = width * height
-                chroma_size = (width // 2) * (height // 2) if args.pix_fmt == 'yuv420' else luma_size
-                
-                # Derive the exact number of frames processed in this batch by checking B_frame.
-                # This guarantees the Colorfulness array length perfectly matches the base metrics.
-                actual_batch_len = len(B_frame)
-                
-                colorfulness_batch = []
-                # Iterate through each frame based on the actual frames processed
-                for step in range(actual_batch_len):
-                    # Account for frame subsampling if args.sample_rate > 1
-                    frame_idx = f + (step * args.sample_rate)
-                    
-                    # Seek to the U plane of the specific frame in the binary YUV stream
-                    stream.seek(int(frame_idx * width * height * pix_size) + luma_size)
-                    
-                    # Read U and V planes sequentially
-                    U = np.fromfile(stream, dtype=np.uint8, count=chroma_size)
-                    V = np.fromfile(stream, dtype=np.uint8, count=chroma_size)
-                    
-                    # Edge case safety: If we hit unexpected EOF, append 0.0 to prevent length mismatch
-                    if len(U) < chroma_size or len(V) < chroma_size:
-                        colorfulness_batch.append(0.0)
-                        continue
-                        
-                    colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U, V, bit_depth=8)
-                    colorfulness_batch.append(colorfulness_val)
-                    
-                # Extend the global list by the batch size (matching SC/TC/E)
                 out_frames[4].extend(colorfulness_batch)
 
         stream.close()
 
-        if args.method == 'VCA':
-            data = {'B': out_frames[0], 'E': out_frames[1], 'h': out_frames[2], 'h2': out_frames[3]}
-        elif args.method == 'EVCA':
-            if args.chroma_complexity:
-                data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3], 'SC_c': out_frames_chroma}
-            else:
-                data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3]}
+        # Export CSV
+        final_csv_path = export_features_to_csv(args, file, out_frames, out_frames_chroma)
         
-        if args.colorfulness:
-            data['Colorfulness'] = out_frames[4]
-            
-        df = pd.DataFrame(data)
-        
-        directory, file_name = os.path.split(args.csv)
-        directory = './' if directory == '' else directory
-
-        if not os.path.exists(directory):
-            os.makedirs(directory, exist_ok=True)
-        if args.dir:
-            final_csv_path = f'{directory}/{file_name[:-4]}_{args.method}_{Path(file).name[:-4]}.csv'
-        else:
-            final_csv_path = args.csv
-            
-        df.to_csv(final_csv_path, index=False)
-        
+        # Additional block plotting / metrics
         if args.block_info == 0 and args.plot_info == 1:
             args.block_info = 1
             print("To plot features we set -bp 1.")
