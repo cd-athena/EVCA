@@ -71,8 +71,8 @@ def chroma_energy_extraction(args: argparse.Namespace,
     energy_v = energy_v.view(nframes, num_blocks_per_frame, cb_size, cb_size)
     
     # calc mean energy per block normalized by block area
-    sc_blocks_u = energy_u.mean(dim=[2, 3]) / (args.block_size * args.block_size)
-    sc_blocks_v = energy_v.mean(dim=[2, 3]) / (args.block_size * args.block_size)
+    sc_blocks_u = energy_u.mean(dim=[2, 3]) / (cb_size * cb_size)
+    sc_blocks_v = energy_v.mean(dim=[2, 3]) / (cb_size * cb_size)
     
     # combine U and V spatial complexities into single Chroma Spatial metric (SC_c)
     SC_chroma_blocks = (sc_blocks_u + sc_blocks_v) * 0.5

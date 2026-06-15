@@ -27,7 +27,7 @@ def print_custom_help():
     print("\nOptions:")
     print("-h /--help                Show this help text and exit.")
     print("-m /--method              Feature extraction method. Default is EVCA. [VCA, EVCA, SITI] ")
-    print("-t /--transform           Discrete transform method. Default is DCT. [DCT, DWT, DCT_B] ")
+    print("-t /--transform           Discrete transform method. Default is DCT. [DCT, DWT, DCT_B]. Note: DCT_B only compatible with block size 32")
     print("-fi/--filter              Edge detection filter. Default is sobel filter. [sobel, canny] ")
     print("-i /--input               Raw YUV input file name.")
     print("-d /--dir                 Directory to multiple yuv files.")

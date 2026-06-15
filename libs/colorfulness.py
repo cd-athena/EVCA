@@ -48,7 +48,7 @@ def calculate_hasler_suesstrunk_colorfulness_yuv(plane_u: np.ndarray, plane_v: n
     var_v = np.var(plane_v)
     
     # calculate means
-    mean_u = np.mean(plane_v) - neutral_point
+    mean_u = np.mean(plane_u) - neutral_point
     mean_v = np.mean(plane_v) - neutral_point
     
     # trigonometric length of standard deviations

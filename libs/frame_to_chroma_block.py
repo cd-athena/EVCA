@@ -23,7 +23,7 @@ def extract_chroma_blocks(args: argparse.Namespace, stream, start: int, end: int
     for frame in frames:
         if args.pix_fmt == 'yuv420':
             # frame size is W*H*1.5 - jump directly past luma to the U plane
-            y_offset = int(frame * width * 1.5)
+            y_offset = int(frame * width * height * 1.5)
             stream.seek(y_offset + (width * height))
         else:
             raise NotImplementedError("Chroma energy currently optimized only for YUV4:2:0")
