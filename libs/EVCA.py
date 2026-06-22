@@ -40,8 +40,10 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_frames = [[] for _ in range(5)] if args.colorfulness else [[] for _ in range(4)]
         out_blocks = [[] for _ in range(4)]
         
-        out_frames_chroma = []
-        out_blocks_chroma = []
+        out_frames_u = []
+        out_frames_v = []
+        out_blocks_u = []
+        out_blocks_v = []
         
         dwt = None
         if args.transform == 'DWT':
@@ -72,13 +74,20 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             # 2. Chroma Processing
             if args.chroma_complexity and U_blocks is not None:
                 U_DTs, V_DTs = apply_chroma_transform(args, U_blocks, V_blocks)
-                    
-                SC_chroma_blocks = chroma_energy_extraction(args, U_DTs, V_DTs, actual_num_frames, chroma_weights)
-                SC_chroma_frame = SC_chroma_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
-                SC_chroma_frame = SC_chroma_frame.cpu().numpy().ravel()
+                # unpack tuple
+                SC_u_blocks, SC_v_blocks = chroma_energy_extraction(args, U_DTs, V_DTs, actual_num_frames, chroma_weights)
+                # calculate frame-level complexity
+                block_count = (width // args.block_size) * (height // args.block_size)
+                SC_u_frame = SC_u_blocks.sum(dim=[1]) / block_count
+                SC_v_frame = SC_v_blocks.sum(dim=[1]) / block_count
                 
-                out_frames_chroma.extend(SC_chroma_frame)
-                out_blocks_chroma.extend(SC_chroma_blocks)
+                SC_u_frame = SC_u_frame.cpu().numpy().ravel()
+                SC_v_frame = SC_v_frame.cpu().numpy().ravel()
+                
+                out_frames_u.extend(SC_u_frame)
+                out_frames_v.extend(SC_v_frame)
+                out_blocks_u.extend(SC_u_blocks)
+                out_blocks_v.extend(SC_v_blocks)
             
             # 3. Luma Processing
             DTs = apply_luma_transform(args, Y_blocks, dwt_model=dwt)
@@ -122,7 +131,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         stream.close()
 
         # Export CSV
-        final_csv_path = export_features_to_csv(args, file, out_frames, out_frames_chroma)
+        final_csv_path = export_features_to_csv(args, file, out_frames, out_frames_u, out_frames_v)
         
         # Additional block plotting / metrics
         if args.block_info == 0 and args.plot_info == 1:
@@ -132,7 +141,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
         if args.block_info:
             if args.chroma_complexity:
-                write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames, out_blocks_chroma)
+                write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames, out_blocks_u, out_frames_v)
             else:
                 write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames)
         if args.plot_info:

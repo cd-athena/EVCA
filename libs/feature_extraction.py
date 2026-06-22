@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from libs.weight_dct import weight_dct
-
+from typing import Tuple
 
 def feature_extraction(args: argparse.Namespace, DCTs, nframes, device):
     width = int(args.resolution.split('x')[0])
@@ -50,10 +50,10 @@ def chroma_energy_extraction(args: argparse.Namespace,
                              U_DCTs: torch.Tensor,
                              V_DCTs: torch.Tensor,
                              nframes: int,
-                             chroma_weight_dct: torch.Tensor) -> torch.Tensor:
+                             chroma_weight_dct: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Computes the Chroma DCT Energy (E_c) for U and V channels and combines them.
-    E_c = (E_u + E_v) / 2
+    Computes the Chroma DCT Energy for U and V channels independently.
+    Returns: SC_u_blocks, SC_v_blocks
     """
     width, height = map(int, args.resolution.split('x'))
     if args.pix_fmt == 'yuv420':
@@ -78,7 +78,5 @@ def chroma_energy_extraction(args: argparse.Namespace,
     sc_blocks_u = energy_u.mean(dim=[2, 3]) / (cb_size * cb_size)
     sc_blocks_v = energy_v.mean(dim=[2, 3]) / (cb_size * cb_size)
     
-    # combine U and V spatial complexities into single Chroma Spatial metric (SC_c)
-    SC_chroma_blocks = (sc_blocks_u + sc_blocks_v) * 0.5
-    
-    return SC_chroma_blocks
+    # Return independent metrics
+    return sc_blocks_u, sc_blocks_v

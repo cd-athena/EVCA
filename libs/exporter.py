@@ -3,7 +3,7 @@ import os
 import argparse
 from pathlib import Path
 
-def export_features_to_csv(args: argparse.Namespace, file: str, out_frames: list, out_frames_chroma: list) -> str:
+def export_features_to_csv(args: argparse.Namespace, file: str, out_frames: list, out_frames_u: list = None, out_frames_v: list = None) -> str:
     """
     Exports the computed features into a CSV file based on the selected method.
     Returns the path to the saved CSV file.
@@ -11,8 +11,9 @@ def export_features_to_csv(args: argparse.Namespace, file: str, out_frames: list
     if args.method == 'VCA':
         data = {'B': out_frames[0], 'E': out_frames[1], 'h': out_frames[2], 'h2': out_frames[3]}
     elif args.method == 'EVCA':
-        if args.chroma_complexity:
-            data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3], 'SC_c': out_frames_chroma}
+        if args.chroma_complexity and out_frames_u and out_frames_v:
+            data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3], 
+                    'SC_u': out_frames_u, 'SC_v': out_frames_v}
         else:
             data = {'B': out_frames[0], 'SC': out_frames[1], 'TC': out_frames[2], 'TC2': out_frames[3]}
             

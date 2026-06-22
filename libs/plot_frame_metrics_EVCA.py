@@ -31,8 +31,11 @@ def plot_frame_metrics_EVCA(args, csv_path):
     if 'Colorfulness' in df.columns:
         metrics_to_plot.append('Colorfulness')
     
-    if 'SC_c' in df.columns:
-        metrics_to_plot.append('SC_c')
+    if 'SC_u' in df.columns:
+        metrics_to_plot.append('SC_u')
+        
+    if 'SC_v' in df.columns:
+        metrics_to_plot.append('SC_v')
     
     # Filter out any metrics that might be missing from the CSV to prevent KeyError
     valid_metrics = [m for m in metrics_to_plot if m in df.columns]
@@ -52,8 +55,14 @@ def plot_frame_metrics_EVCA(args, csv_path):
         
     for i, metric in enumerate(valid_metrics):
         # Give Colorfulness a distinct color (purple) compared to spatial/temporal (blue)
-        line_color = 'purple' if metric == 'Colorfulness' else '#1f77b4'
-        
+        if metric == 'Colorfulness':
+            line_color = 'purple'
+        elif metric == 'SC_u':
+            line_color = '#ff7f0e' # Orange (Standard Matplotlib color cycle)
+        elif metric == 'SC_v':
+            line_color = '#2ca02c' # Green
+        else:
+            line_color = '#1f77b4' # Default Blue for Spatial/Temporal Luma        
         axes[i].plot(df[metric], label=metric, color=line_color, linewidth=1.5)
         axes[i].set_title(f'{metric} over Frames')
         axes[i].set_xlabel('Frame Index')
