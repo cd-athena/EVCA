@@ -42,8 +42,8 @@ class TestColorfulnessMetric(unittest.TestCase):
         
         # Centered mean will be 255 - 128 = 127
         # mu = sqrt(127^2 + 127^2) ≈ 179.605
-        # metric = 0 (sigma) + 0.3 * 179.605 ≈ 53.8815
-        expected_val = 0.3 * np.sqrt(127**2 + 127**2)
+        # metric = (0 (sigma) + 0.3 * 179.605) * 2.05 ≈ 110.457
+        expected_val = (0.3 * np.sqrt(127**2 + 127**2)) * 2.05
         
         colorfulness = calculate_hasler_suesstrunk_colorfulness_yuv(u_plane, v_plane, bit_depth=8)
         self.assertAlmostEqual(colorfulness, expected_val, places=4)
@@ -63,12 +63,13 @@ class TestColorfulnessMetric(unittest.TestCase):
         # Mean is 127.5 (Centered mean = -0.5, which is tiny)
         # Variance of 50% 0s and 50% 255s is roughly 127.5^2 = 16256.25
         # sigma = sqrt(16256.25 + 16256.25) ≈ 180.31
+        # metric = 180.31 * 2.05 = 369.6
         
         colorfulness = calculate_hasler_suesstrunk_colorfulness_yuv(u_plane, v_plane, bit_depth=8)
         
-        # Should be dominated by the high variance (around 180)
-        self.assertGreater(colorfulness, 175.0)
-        self.assertLess(colorfulness, 185.0)
+        # Should be dominated by the high variance (around 369)
+        self.assertGreater(colorfulness, 360.0)
+        self.assertLess(colorfulness, 380.0)
 
     def test_10_bit_support(self):
         """Ensure 10-bit HDR video planes (neutral 512, max 1023) process correctly."""
@@ -84,7 +85,7 @@ class TestColorfulnessMetric(unittest.TestCase):
         c_color = calculate_hasler_suesstrunk_colorfulness_yuv(u_color, v_color, bit_depth=10)
         
         # Centered mean = 1023 - 512 = 511
-        expected_color = 0.3 * np.sqrt(511**2 + 511**2)
+        expected_color = (0.3 * np.sqrt(511**2 + 511**2)) * 2.05
         self.assertAlmostEqual(c_color, expected_color, places=4)
 
     def test_12_bit_support(self):

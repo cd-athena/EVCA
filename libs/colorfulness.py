@@ -1,5 +1,5 @@
 import numpy as np
-# from paper "Measuring colourfulness in natural images" by David Hasler and Sabine Süusstrunk
+# from paper "Measuring colourfulness in natural images" by David Hasler and Sabine Suesstrunk
 #
 # M^(3) = sigma_rgyb + 0.3 * mu_rgyb
 #
@@ -57,6 +57,8 @@ def calculate_hasler_suesstrunk_colorfulness_yuv(plane_u: np.ndarray, plane_v: n
     # distance of center of gravity to neutral axis
     mu_uv = np.sqrt(mean_u**2 + mean_v**2)
     
-    colorfulness_metric = sigma_uv + 0.3 * mu_uv
+    # scaled by 2.05 to map the (U,V) space back to the (rg, yb) space,
+    # to yield comparable results with paper's original semantic thresholds.
+    colorfulness_metric = (sigma_uv + 0.3 * mu_uv) * 2.05
     
     return float(colorfulness_metric)
