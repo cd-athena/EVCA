@@ -47,9 +47,6 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         if args.transform == 'DWT':
             dwt = DWTForward().to(device)
             
-        if args.chroma_complexity:
-            chroma_weights = weight_dct_by_size(args.block_size // 2, device)
-            
         luma_size = width * height
         if args.pix_fmt == 'yuv420':
             chroma_size = (width // 2) * (height // 2)
@@ -59,6 +56,9 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             chroma_size = width * height
             uv_w, uv_h = width, height
             cb_size = args.block_size
+            
+        if args.chroma_complexity:
+            chroma_weights = weight_dct_by_size(cb_size, device)
 
         for f in range(0, nframes, steps):
             actual_num_frames = len(range(f, min(nframes, f + steps), args.sample_rate))

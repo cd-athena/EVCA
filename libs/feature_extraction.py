@@ -55,9 +55,13 @@ def chroma_energy_extraction(args: argparse.Namespace,
     Computes the Chroma DCT Energy (E_c) for U and V channels and combines them.
     E_c = (E_u + E_v) / 2
     """
-    cb_size = args.block_size // 2
     width, height = map(int, args.resolution.split('x'))
-    uv_w, uv_h = width // 2, height // 2
+    if args.pix_fmt == 'yuv420':
+        uv_w, uv_h = width // 2, height // 2
+        cb_size = args.block_size // 2
+    elif args.pix_fmt == 'yuv444':
+        uv_w, uv_h = width, height
+        cb_size = args.block_size
     
     num_blocks_per_frame = (uv_w // cb_size) * (uv_h // cb_size)
     

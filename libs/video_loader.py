@@ -52,8 +52,6 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
                     colorfulness_batch.append(colorfulness_val)
                     
             if args.chroma_complexity:
-                if args.pix_fmt != 'yuv420':
-                    raise NotImplementedError("Chroma energy currently optimized only for YUV4:2:0")
                 
                 U_t = torch.from_numpy(
                     U[:uv_h // cb_size * cb_size, :uv_w // cb_size * cb_size]
