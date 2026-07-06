@@ -44,7 +44,9 @@ def print_custom_help():
     print("-dp/--dpi                 Image quality of the saved output. Default is 100.")
     print("-cf /--colorfulness       Enable Hasler & Süsstrunk M^(3) colorfulness analysis.")
     print("-pm/--plot_metrics        Plot per frame metrics over time. Default is disabled")   
-    print("-cc/--chroma_complexity   Enable Chroma (U,V) Complexity calculation.")   
+    print("-cc/--chroma_complexity   Enable Chroma (U,V) Complexity calculation.")
+    print("-me/--motion_estimation   Enable Block-Based Motion Estimation (Block-ME)")
+    print("-sr/--search_range        Search range in pixels for ME. Default is 4.")
 
 
 def get_parser_arguments() -> argparse.Namespace:
@@ -67,6 +69,8 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-cf','--colorfulness', action='store_true')
     parser.add_argument('-pm', '--plot_metrics', type=int, default='0')
     parser.add_argument('-cc', '--chroma_complexity', action='store_true')
+    parser.add_argument('-me', '--motion_estimation', action='store_true')
+    parser.add_argument('-sr', '--search_range', type=int, default=4)
 
     return parser.parse_args()
 

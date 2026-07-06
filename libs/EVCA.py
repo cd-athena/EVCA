@@ -14,7 +14,7 @@ from libs.weight_dct import weight_dct_by_size
 from libs.video_loader import load_gop
 from libs.transforms import apply_luma_transform, apply_chroma_transform
 from libs.exporter import export_features_to_csv
-
+from libs.temporal_engine import EVCATemporalEngine, IntegerBlockMatcher, MetricMVC, MetricsTCSAD
 
 def EVCA(args: argparse.Namespace, input_list, device) -> None:
     width = int(args.resolution.split('x')[0])
@@ -45,6 +45,19 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_blocks_u = []
         out_blocks_v = []
         
+        temporal_engine = None
+        out_mvc = []
+        out_tcsad = []
+        if args.motion_estimation:
+            me_module = IntegerBlockMatcher(args.block_size, args.search_range).to(device)
+            metrics = {
+                'mvc': MetricMVC().to(device),
+                'tc_sad': MetricsTCSAD().to(device)
+            }
+            temporal_engine = EVCATemporalEngine(me_module, metrics).to(device)
+            # if hasattr(torch, "compile"):
+            #     temporal_engine = torch.compile(temporal_engine, mode="reduce-overhead")
+        last_Y_frame = None
         dwt = None
         if args.transform == 'DWT':
             dwt = DWTForward().to(device)
@@ -65,13 +78,37 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         for f in range(0, nframes, steps):
             actual_num_frames = len(range(f, min(nframes, f + steps), args.sample_rate))
             
-            # 1. Load Data
-            Y_blocks, U_blocks, V_blocks, colorfulness_batch = load_gop(
+            # Load Data
+            Y_blocks, U_blocks, V_blocks, colorfulness_batch, Y_frames = load_gop(
                 args, stream, f, min(nframes, f + steps), device, 
                 width, height, pix_size, luma_size, chroma_size, uv_w, uv_h, cb_size
             )
             
-            # 2. Chroma Processing
+            # Motion Estimation
+            if temporal_engine is not None and Y_frames.shape[0] > 0:
+                if last_Y_frame is not None:
+                    me_input_frames = torch.cat([last_Y_frame, Y_frames], dim=0)
+                else:
+                    me_input_frames = Y_frames
+                
+                if me_input_frames.shape[0] > 1:
+                    current_frames = me_input_frames[1:]
+                    ref_frames = me_input_frames[:-1]
+                    # batched ME and metrics
+                    me_results = temporal_engine(current_frames, ref_frames)
+                    mvc_batch = me_results['mvc'].cpu().numpy().ravel()
+                    tcsad_batch = me_results['tc_sad'].cpu().numpy().ravel()
+                    
+                    if f == 0:
+                        # pad first frame with 0 (since it has no reference)
+                        out_mvc.extend([0.0] + list(mvc_batch))
+                        out_tcsad.extend([0.0] + list(tcsad_batch))
+                    else:
+                        out_mvc.extend(list(mvc_batch))
+                        out_tcsad.extend(list(tcsad_batch))
+                last_Y_frame = Y_frames[-1:]
+                
+            # Chroma Processing
             if args.chroma_complexity and U_blocks is not None:
                 U_DTs, V_DTs = apply_chroma_transform(args, U_blocks, V_blocks)
                 # unpack tuple
@@ -89,7 +126,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                 out_blocks_u.extend(SC_u_blocks)
                 out_blocks_v.extend(SC_v_blocks)
             
-            # 3. Luma Processing
+            # Luma Processing
             DTs = apply_luma_transform(args, Y_blocks, dwt_model=dwt)
 
             B_blocks, SC_blocks, energy = feature_extraction(args, DTs, actual_num_frames, device)
@@ -98,7 +135,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             last_energy = energy[-2:]
             last_SC = SC_blocks[-2:]
 
-            # 4. Aggregation
+            # Aggregation
             B_frame = B_blocks.mean(dim=1)
             SC_frame = SC_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
             TC_frame = TC_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
@@ -131,7 +168,11 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         stream.close()
 
         # Export CSV
-        final_csv_path = export_features_to_csv(args, file, out_frames, out_frames_u, out_frames_v)
+        final_csv_path = export_features_to_csv(args, file, out_frames,
+            out_frames_u=out_frames_u if args.chroma_complexity else None, 
+            out_frames_v=out_frames_v if args.chroma_complexity else None,
+            out_mvc=out_mvc if args.motion_estimation else None,
+            out_tcsad=out_tcsad if args.motion_estimation else None)
         
         # Additional block plotting / metrics
         if args.block_info == 0 and args.plot_info == 1:

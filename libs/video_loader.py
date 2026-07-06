@@ -16,11 +16,13 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
         U_blocks: Tensor of shape [Total_Blocks, cb_size, cb_size] or None
         V_blocks: Tensor of shape [Total_Blocks, cb_size, cb_size] or None
         colorfulness_batch: List of colorfulness floats
+        Y_frames: Tensore of shape [Batch, 1, Height, Width] (Float) for Mition Estimation
     """
     Y_blocks_list = []
     U_blocks_list = []
     V_blocks_list = []
     colorfulness_batch = []
+    Y_frames_list = []
     
     frames = np.arange(start_frame, end_frame, args.sample_rate)
     
@@ -34,6 +36,8 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
         Y_t = torch.from_numpy(
             Y[:height // args.block_size * args.block_size, :width // args.block_size * args.block_size]
         ).to(device, non_blocking=True)
+        
+        Y_frames_list.append(Y_t.unsqueeze(0).unsqueeze(0).float()) # store full frame before slicing, adding [Batch, Channel] dims and casting to float
         
         b = Y_t.unfold(0, args.block_size, args.block_size).unfold(1, args.block_size, args.block_size).contiguous().view(-1, args.block_size, args.block_size)
         Y_blocks_list.append(b)
@@ -68,10 +72,13 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
                 
     Y_blocks = torch.cat(Y_blocks_list, dim=0)
     
+    # concatenate all stored frames into a single batch tensor of shape [B, 1, H, W]
+    Y_frames = torch.cat(Y_frames_list, dim=0)
+    
     U_blocks = None
     V_blocks = None
     if args.chroma_complexity and len(U_blocks_list) > 0:
         U_blocks = torch.cat(U_blocks_list, dim=0)
         V_blocks = torch.cat(V_blocks_list, dim=0)
         
-    return Y_blocks, U_blocks, V_blocks, colorfulness_batch
+    return Y_blocks, U_blocks, V_blocks, colorfulness_batch, Y_frames
