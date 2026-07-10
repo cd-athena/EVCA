@@ -17,270 +17,78 @@ class TemporalState:
     mc_blocks: torch.Tensor = None  # Unfolded, motion-compensated blocks
     residual: torch.Tensor = None   # current_blocks - mc_blocks
 
-class IntegerBlockMatcher(nn.Module):
+class SparsePatternBlockMatcher(nn.Module):
     """
-    Ultra-Fast Single-Stage Coarse Matcher.
-    Drops per-block refinement entirely to bypass all PyTorch indexing 
-    bottlenecks. Achieves hardware-level speeds natively.
+    Sparse Pattern Block Matcher (The 'Fixed Diamond').
+    Evaluates a static, deterministic diamond of motion vectors to achieve
+    blazing-fast O(1) search complexity while preserving highly accurate heuristics.
     """
-    def __init__(self, block_size: int = 32, coarse_range: int = 3):
+    def __init__(self, block_size: int = 32):
         super().__init__()
         self.bs = block_size
         self.bs_c = block_size // 2
-        # A coarse range of +/- 3 equates to an effective +/- 6 pixel 
-        # search range at full resolution, which is highly sufficient for EVCA.
-        self.R_c = coarse_range 
+
+        # 1. Define the 13-point Large Diamond Pattern (Quarter-Resolution Offsets)
+        # This gives us a highly efficient +/- 6 pixel effective search radius.
+        self.pattern = [
+            (0, 0),
+            (-1, 0), (1, 0), (0, -1), (0, 1),
+            (-2, 0), (2, 0), (0, -2), (0, 2),
+            (-3, 0), (3, 0), (0, -3), (0, 3)
+        ]
+        
+        self.num_cands = len(self.pattern)
+        
+        # Calculate padding dynamically based on the pattern's maximum reach
+        self.R_c = max(max(abs(dy), abs(dx)) for dy, dx in self.pattern)
+
+        # 2. Vectorized O(1) Lookup Table for Coordinate Decoding
+        # We pre-multiply by 2.0 so the lookup table outputs full-resolution vectors instantly.
+        # register_buffer ensures this tensor automatically moves to MPS/CUDA alongside the model.
+        lookup_tensor = torch.tensor(self.pattern, dtype=torch.float32) * 2.0
+        self.register_buffer('pattern_lookup', lookup_tensor)
 
     def forward(self, curr_frame: torch.Tensor, ref_frame: torch.Tensor):
         B, C, H, W = curr_frame.shape
         H_b, W_b = H // self.bs, W // self.bs
 
         # =====================================================================
-        # SINGLE STAGE: COARSE SEARCH (Quarter-Resolution Shift-and-Pool)
+        # COARSE SEARCH: Shift-and-Pool over the Fixed Diamond
         # =====================================================================
-        # Downsampling preserves structural energy for SAD while cutting 
-        # memory bandwidth consumption by exactly 75%.
         curr_c = F.avg_pool2d(curr_frame, kernel_size=2, stride=2)
         ref_c = F.avg_pool2d(ref_frame, kernel_size=2, stride=2)
         
         ref_c_padded = F.pad(ref_c, (self.R_c, self.R_c, self.R_c, self.R_c), mode='replicate')
 
-        # Evaluate 49 dense candidates (7x7 grid)
-        num_cands = (2 * self.R_c + 1) ** 2
-        sads = torch.empty((B, num_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
+        # Pre-allocate SAD tensor for exactly 13 candidates instead of 49
+        sads = torch.empty((B, self.num_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
 
-        idx = 0
-        for dy in range(-self.R_c, self.R_c + 1):
-            for dx in range(-self.R_c, self.R_c + 1):
-                # Zero-copy tensor slicing (0 memory allocation)
-                ref_slice = ref_c_padded[:, :, self.R_c+dy : (H//2)+self.R_c+dy, self.R_c+dx : (W//2)+self.R_c+dx]
-                abs_diff = torch.abs(curr_c - ref_slice)
-                
-                # Hardware-accelerated pooling provides simultaneous block SADs
-                sads[:, idx] = F.avg_pool2d(abs_diff, kernel_size=self.bs_c, stride=self.bs_c).squeeze(1)
-                idx += 1
+        for idx, (dy, dx) in enumerate(self.pattern):
+            # Zero-copy tensor slice
+            ref_slice = ref_c_padded[:, :, self.R_c+dy : (H//2)+self.R_c+dy, self.R_c+dx : (W//2)+self.R_c+dx]
+            
+            # Hardware-accelerated block SAD
+            abs_diff = torch.abs(curr_c - ref_slice)
+            sads[:, idx] = F.avg_pool2d(abs_diff, kernel_size=self.bs_c, stride=self.bs_c).squeeze(1)
 
-        # Massive batched reduction across all candidates
-        best_sad, best_idx = torch.min(sads, dim=1, keepdim=True)
+        # Global Hardware Reduction
+        # best_idx is a 3D tensor of shape [B, H_b, W_b] containing values 0-12
+        best_sad, best_idx = torch.min(sads, dim=1) 
+
+        # =====================================================================
+        # COORDINATE DECODING: Vectorized Advanced Indexing
+        # =====================================================================
+        # We pass the entire batch's index tensor into the 2D lookup table. 
+        # PyTorch advanced indexing automatically expands this into shape [B, H_b, W_b, 2]
+        decoded_mvs = self.pattern_lookup[best_idx]
         
-        # Decode the optimal 1D indices back into 2D Motion Vectors
-        grid_width = 2 * self.R_c + 1
-        base_dy = ((best_idx // grid_width) - self.R_c) * 2
-        base_dx = ((best_idx % grid_width) - self.R_c) * 2
-
-        # Scale back to full-resolution coordinates
-        best_mv = torch.cat([base_dy.float(), base_dx.float()], dim=1)
-
-        # We return the coarse SAD directly. Because it is calculated on an avg_pooled
-        # tensor, it perfectly correlates with the full-frame SAD, fulfilling the TCSAD metric.
-        return best_mv, best_sad
-
-
-
-
-
-# class IntegerBlockMatcher(nn.Module):
-#     """
-#     Hyper-Optimized Hierarchical Pyramid Matcher.
-#     Utilizes Zero-Copy Block-Pointer Indexing (Hardware-Agnostic FP32).
-#     """
-#     def __init__(self, block_size: int = 32, coarse_range: int = 2, fine_range: int = 1):
-#         super().__init__()
-#         self.bs = block_size
-#         self.bs_c = block_size // 2
-#         self.R_c = coarse_range
-#         self.R_f = fine_range
-
-#     def forward(self, curr_frame: torch.Tensor, ref_frame: torch.Tensor):
-#         B, C, H, W = curr_frame.shape
-#         H_b, W_b = H // self.bs, W // self.bs
-
-#         # =====================================================================
-#         # STAGE 1: COARSE SEARCH (Quarter-Resolution)
-#         # =====================================================================
-#         curr_c = F.avg_pool2d(curr_frame, kernel_size=2, stride=2)
-#         ref_c = F.avg_pool2d(ref_frame, kernel_size=2, stride=2)
-
-#         ref_c_padded = F.pad(ref_c, (self.R_c, self.R_c, self.R_c, self.R_c), mode='replicate')
-
-#         num_c_cands = (2 * self.R_c + 1) ** 2
+        # Split the vectors and reshape to [B, 1, H_b, W_b] to match EVCA plugin formats
+        best_dy = decoded_mvs[..., 0].unsqueeze(1)
+        best_dx = decoded_mvs[..., 1].unsqueeze(1)
         
-#         # Using curr_frame.dtype ensuring native FP32 support across CUDA/MPS/CPU
-#         sads_c = torch.empty((B, num_c_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
+        best_mv = torch.cat([best_dy, best_dx], dim=1)
 
-#         idx = 0
-#         for dy in range(-self.R_c, self.R_c + 1):
-#             for dx in range(-self.R_c, self.R_c + 1):
-#                 ref_slice = ref_c_padded[:, :, self.R_c+dy : (H//2)+self.R_c+dy, self.R_c+dx : (W//2)+self.R_c+dx]
-#                 abs_diff = torch.abs(curr_c - ref_slice)
-#                 sads_c[:, idx] = F.avg_pool2d(abs_diff, kernel_size=self.bs_c, stride=self.bs_c).squeeze(1)
-#                 idx += 1
-
-#         _, best_idx_c = torch.min(sads_c, dim=1, keepdim=True)
-#         grid_width_c = 2 * self.R_c + 1
-        
-#         base_dy = ((best_idx_c // grid_width_c) - self.R_c) * 2
-#         base_dx = ((best_idx_c % grid_width_c) - self.R_c) * 2
-
-#         # =====================================================================
-#         # STAGE 2: FINE REFINEMENT
-#         # =====================================================================
-#         curr_blocks = curr_frame.unfold(2, self.bs, self.bs).unfold(3, self.bs, self.bs).squeeze(1)
-
-#         max_reach = (self.R_c * 2) + self.R_f
-#         ref_padded = F.pad(ref_frame, (max_reach, max_reach, max_reach, max_reach), mode='replicate')
-
-#         # The 1024x Block-Pointer Reduction (This is what makes it so fast)
-#         ref_unfolded = ref_padded.unfold(2, self.bs, 1).unfold(3, self.bs, 1).squeeze(1)
-        
-#         grid_y = (torch.arange(H_b, device=curr_frame.device) * self.bs + max_reach).view(H_b, 1)
-#         grid_x = (torch.arange(W_b, device=curr_frame.device) * self.bs + max_reach).view(1, W_b)
-        
-#         num_f_cands = (2 * self.R_f + 1) ** 2
-#         sads_f = torch.empty((B, num_f_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
-#         mvs_f_y = torch.empty((B, num_f_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
-#         mvs_f_x = torch.empty((B, num_f_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
-
-#         b_idx = torch.arange(B, device=curr_frame.device).view(B, 1, 1)
-
-#         idx = 0
-#         for dy in range(-self.R_f, self.R_f + 1):
-#             for dx in range(-self.R_f, self.R_f + 1):
-#                 cand_dy = base_dy.squeeze(1) + dy
-#                 cand_dx = base_dx.squeeze(1) + dx
-
-#                 mvs_f_y[:, idx] = cand_dy
-#                 mvs_f_x[:, idx] = cand_dx
-
-#                 block_y = grid_y.unsqueeze(0) + cand_dy
-#                 block_x = grid_x.unsqueeze(0) + cand_dx
-
-#                 mc_blocks = ref_unfolded[b_idx, block_y.long(), block_x.long()]
-
-#                 sads_f[:, idx] = torch.mean(torch.abs(curr_blocks - mc_blocks), dim=(3, 4))
-#                 idx += 1
-
-#         best_sad, best_idx = torch.min(sads_f, dim=1, keepdim=True)
-#         final_dy = torch.gather(mvs_f_y, 1, best_idx)
-#         final_dx = torch.gather(mvs_f_x, 1, best_idx)
-
-#         best_mv = torch.cat([final_dy, final_dx], dim=1)
-
-#         return best_mv, best_sad
-
-# class IntegerBlockMatcher(nn.Module):
-#     """
-#     Hierarchical Pyramid Block Matcher.
-#     Achieves ASIC-like speeds natively in PyTorch by combining 
-#     Coarse Quarter-Resolution Shift-and-Pool with Fine Advanced Indexing.
-#     """
-#     def __init__(self, block_size: int = 32, coarse_range: int = 2, fine_range: int = 1):
-#         super().__init__()
-#         self.bs = block_size
-#         self.bs_c = block_size // 2      # Coarse block size
-#         self.R_c = coarse_range          # Quarter-res search radius
-#         self.R_f = fine_range            # Full-res refinement radius
-
-#     def forward(self, curr_frame: torch.Tensor, ref_frame: torch.Tensor):
-#         B, C, H, W = curr_frame.shape
-#         H_b, W_b = H // self.bs, W // self.bs
-
-#         # =====================================================================
-#         # STAGE 1: COARSE SEARCH (Quarter-Resolution)
-#         # =====================================================================
-#         # 1. Downsample (avg_pool preserves structural integer energy for SAD)
-#         curr_c = F.avg_pool2d(curr_frame, kernel_size=2, stride=2)
-#         ref_c = F.avg_pool2d(ref_frame, kernel_size=2, stride=2)
-
-#         # 2. Pad coarse reference
-#         ref_c_padded = F.pad(ref_c, (self.R_c, self.R_c, self.R_c, self.R_c), mode='replicate')
-
-#         # 3. Dense search at coarse level (25 candidates)
-#         num_c_cands = (2 * self.R_c + 1) ** 2
-#         sads_c = torch.empty((B, num_c_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
-
-#         idx = 0
-#         for dy in range(-self.R_c, self.R_c + 1):
-#             for dx in range(-self.R_c, self.R_c + 1):
-#                 # Zero-copy slice of the quarter-res frame
-#                 ref_slice = ref_c_padded[:, :, self.R_c+dy : (H//2)+self.R_c+dy, self.R_c+dx : (W//2)+self.R_c+dx]
-#                 abs_diff = torch.abs(curr_c - ref_slice)
-                
-#                 # Hardware pooled SAD
-#                 sad = F.avg_pool2d(abs_diff, kernel_size=self.bs_c, stride=self.bs_c)
-#                 sads_c[:, idx] = sad.squeeze(1)
-#                 idx += 1
-
-#         # 4. Find optimal coarse MVs and upscale them to full resolution
-#         _, best_idx_c = torch.min(sads_c, dim=1, keepdim=True)
-#         grid_width_c = 2 * self.R_c + 1
-        
-#         base_dy = ((best_idx_c // grid_width_c) - self.R_c) * 2
-#         base_dx = ((best_idx_c % grid_width_c) - self.R_c) * 2
-
-#         # =====================================================================
-#         # STAGE 2: FINE REFINEMENT (Full-Resolution Advanced Indexing)
-#         # =====================================================================
-#         # 1. Slice current frame into non-overlapping blocks without copying memory
-#         # Shape: [B, H_b, W_b, bs, bs]
-#         curr_blocks = curr_frame.unfold(2, self.bs, self.bs).unfold(3, self.bs, self.bs).squeeze(1)
-
-#         # 2. Pad full resolution reference for the absolute maximum possible reach
-#         max_reach = (self.R_c * 2) + self.R_f
-#         ref_padded = F.pad(ref_frame, (max_reach, max_reach, max_reach, max_reach), mode='replicate')
-
-#         # 3. Pre-calculate pristine integer grid coordinates for every pixel in every block
-#         y_base = torch.arange(H_b, device=curr_frame.device) * self.bs + max_reach
-#         x_base = torch.arange(W_b, device=curr_frame.device) * self.bs + max_reach
-#         y_offsets = torch.arange(self.bs, device=curr_frame.device).view(-1, 1)
-#         x_offsets = torch.arange(self.bs, device=curr_frame.device).view(1, -1)
-        
-#         # Base grid: [H_b, W_b, bs, bs]
-#         grid_y = y_base.view(H_b, 1, 1, 1) + y_offsets
-#         grid_x = x_base.view(1, W_b, 1, 1) + x_offsets
-
-#         # 4. Refinement Search Loop (9 candidates)
-#         num_f_cands = (2 * self.R_f + 1) ** 2
-#         sads_f = torch.empty((B, num_f_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
-#         mvs_f_y = torch.empty((B, num_f_cands, H_b, W_b), device=curr_frame.device)
-#         mvs_f_x = torch.empty((B, num_f_cands, H_b, W_b), device=curr_frame.device)
-
-#         # Batch index array for advanced tensor gathering
-#         b_idx = torch.arange(B, device=curr_frame.device).view(B, 1, 1, 1, 1)
-
-#         idx = 0
-#         for dy in range(-self.R_f, self.R_f + 1):
-#             for dx in range(-self.R_f, self.R_f + 1):
-#                 # Calculate candidate MV = Upscaled Coarse MV + Fine Offset
-#                 cand_dy = base_dy.squeeze(1) + dy
-#                 cand_dx = base_dx.squeeze(1) + dx
-
-#                 mvs_f_y[:, idx] = cand_dy
-#                 mvs_f_x[:, idx] = cand_dx
-
-#                 # Generate sampling coordinates by adding the unique integer MV to every block's grid
-#                 # Shape: [B, H_b, W_b, bs, bs]
-#                 sample_y = grid_y.unsqueeze(0) + cand_dy.unsqueeze(-1).unsqueeze(-1)
-#                 sample_x = grid_x.unsqueeze(0) + cand_dx.unsqueeze(-1).unsqueeze(-1)
-
-#                 # Advanced integer indexing: Pluck the exact motion-compensated blocks straight out of memory
-#                 # Absolutely 0 interpolation or bilinear smearing.
-#                 mc_blocks = ref_padded[b_idx, 0, sample_y.long(), sample_x.long()] 
-
-#                 # Calculate spatial mean SAD matching the format of avg_pool2d
-#                 sad = torch.sum(torch.abs(curr_blocks - mc_blocks), dim=(3, 4)) / (self.bs * self.bs)
-#                 sads_f[:, idx] = sad
-#                 idx += 1
-
-#         # 5. Find ultimate best MVs
-#         best_sad, best_idx = torch.min(sads_f, dim=1, keepdim=True)
-#         final_dy = torch.gather(mvs_f_y, 1, best_idx)
-#         final_dx = torch.gather(mvs_f_x, 1, best_idx)
-
-#         # Output shape: [B, 2, H_b, W_b]
-#         best_mv = torch.cat([final_dy, final_dx], dim=1)
-
-#         return best_mv, best_sad
+        return best_mv, best_sad.unsqueeze(1)
 
 class EVCATemporalMetric(nn.Module):
     """Abstract Base Class for Temporal Plugins."""

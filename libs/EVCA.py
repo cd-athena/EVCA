@@ -14,7 +14,7 @@ from libs.weight_dct import weight_dct_by_size
 from libs.video_loader import load_gop
 from libs.transforms import apply_luma_transform, apply_chroma_transform
 from libs.exporter import export_features_to_csv
-from libs.temporal_engine import EVCATemporalEngine, IntegerBlockMatcher, MetricMVC, MetricsTCSAD
+from libs.temporal_engine import EVCATemporalEngine, MetricMVC, MetricsTCSAD, SparsePatternBlockMatcher
 
 def EVCA(args: argparse.Namespace, input_list, device) -> None:
     width = int(args.resolution.split('x')[0])
@@ -49,7 +49,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_mvc = []
         out_tcsad = []
         if args.motion_estimation:
-            me_module = IntegerBlockMatcher(args.block_size, args.search_range).to(device)
+            me_module = SparsePatternBlockMatcher(args.block_size).to(device)
             metrics = {
                 'mvc': MetricMVC().to(device),
                 'tc_sad': MetricsTCSAD().to(device)
