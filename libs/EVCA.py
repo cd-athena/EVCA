@@ -11,7 +11,7 @@ from libs.plot_block_info_EVCA import plot_block_info_EVCA
 from libs.write_block_info import write_block_info
 from libs.plot_frame_metrics_EVCA import plot_frame_metrics_EVCA
 from libs.weight_dct import weight_dct_by_size
-from libs.video_loader import load_gop
+from libs.video_loader import load_gop, load_gop_optimized
 from libs.transforms import apply_luma_transform, apply_chroma_transform
 from libs.exporter import export_features_to_csv
 from libs.temporal_engine import EVCATemporalEngine, MetricMVC, MetricsTCSAD, SparsePatternBlockMatcher
@@ -82,7 +82,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             actual_num_frames = len(range(f, min(nframes, f + steps), args.sample_rate))
             
             # Load Data
-            Y_blocks, U_blocks, V_blocks, colorfulness_batch, Y_frames = load_gop(
+            loader_function = load_gop_optimized if args.loader == 'optimized' else load_gop
+            Y_blocks, U_blocks, V_blocks, colorfulness_batch, Y_frames = loader_function(
                 args, stream, f, min(nframes, f + steps), device, 
                 width, height, pix_size, luma_size, chroma_size, uv_w, uv_h, cb_size
             )

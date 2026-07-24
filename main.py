@@ -47,7 +47,7 @@ def print_custom_help():
     print("-cc/--chroma_complexity   Enable Chroma (U,V) Complexity calculation.")
     print("-me/--motion_estimation   Enable Block-Based Motion Estimation (Block-ME)")
     print('--heuristic               Search pattern geometry: "diamond" (13-point) or "square" (9-point).')
-
+    print('--loader                  Select the I/O pipeline: "standard" (sequential reads, low memory) or "optimized" (memory-mapped, high throughput but may cause OOM error).')
 
 def get_parser_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=False, )
@@ -71,6 +71,7 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-cc', '--chroma_complexity', action='store_true')
     parser.add_argument('-me', '--motion_estimation', action='store_true')
     parser.add_argument('--heuristic', type=str, default='diamond', choices=['diamond', 'square'])
+    parser.add_argument('--loader', type=str, default='standard', choices=['standard', 'optimized'])
     return parser.parse_args()
 
 
