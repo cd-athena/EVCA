@@ -46,7 +46,7 @@ def print_custom_help():
     print("-pm/--plot_metrics        Plot per frame metrics over time. Default is disabled")   
     print("-cc/--chroma_complexity   Enable Chroma (U,V) Complexity calculation.")
     print("-me/--motion_estimation   Enable Block-Based Motion Estimation (Block-ME)")
-    print("-sr/--search_range        Search range in pixels for ME. Default is 4.")
+    print('--heuristic               Search pattern geometry: "diamond" (13-point) or "square" (9-point).')
 
 
 def get_parser_arguments() -> argparse.Namespace:
@@ -70,8 +70,7 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-pm', '--plot_metrics', type=int, default='0')
     parser.add_argument('-cc', '--chroma_complexity', action='store_true')
     parser.add_argument('-me', '--motion_estimation', action='store_true')
-    parser.add_argument('-sr', '--search_range', type=int, default=4)
-
+    parser.add_argument('--heuristic', type=str, default='diamond', choices=['diamond', 'square'])
     return parser.parse_args()
 
 

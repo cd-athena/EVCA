@@ -21,21 +21,32 @@ class SparsePatternBlockMatcher(nn.Module):
     """
     Sparse Pattern Block Matcher (The 'Fixed Diamond').
     Evaluates a static, deterministic diamond of motion vectors to achieve
-    blazing-fast O(1) search complexity while preserving highly accurate heuristics.
+    fast O(1) search complexity while preserving highly accurate heuristics.
     """
-    def __init__(self, block_size: int = 32):
+    def __init__(self, block_size: int = 32, heuristic: str = 'diamond'):
         super().__init__()
         self.bs = block_size
-        self.bs_c = block_size // 2
+        self.bs_c = block_size // 2     # coarse block size
 
-        # 1. Define the 13-point Large Diamond Pattern (Quarter-Resolution Offsets)
+        if heuristic == 'diamond':
+        # 1.a 13-point Large Diamond Pattern (Quarter-Resolution Offsets)
         # This gives us a highly efficient +/- 6 pixel effective search radius.
-        self.pattern = [
-            (0, 0),
-            (-1, 0), (1, 0), (0, -1), (0, 1),
-            (-2, 0), (2, 0), (0, -2), (0, 2),
-            (-3, 0), (3, 0), (0, -3), (0, 3)
-        ]
+            self.pattern = [
+                (0, 0),
+                (-1, 0), (1, 0), (0, -1), (0, 1),
+                (-2, 0), (2, 0), (0, -2), (0, 2),
+                (-3, 0), (3, 0), (0, -3), (0, 3)
+            ]
+        elif heuristic == 'square':
+        # 1.b 9-point Sparse Square (Radius = 2 at quarter-res -> Effective +/- 4 pixels)
+        # Captures center, cross, and extreme diagonals.
+            self.pattern = [
+                (0, 0),
+                (-2, 0), (2, 0), (0, -2), (0, 2),    # Cardinal directions
+                (-2, -2), (-2, 2), (2, -2), (2, 2)   # The Diagonals (1,1), (-1,-1), etc.
+            ]
+        else:
+            raise ValueError(f"unknown heuristic pattern: {heuristic}")
         
         self.num_cands = len(self.pattern)
         

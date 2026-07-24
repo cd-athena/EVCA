@@ -49,7 +49,10 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_mvc = []
         out_tcsad = []
         if args.motion_estimation:
-            me_module = SparsePatternBlockMatcher(args.block_size).to(device)
+            me_module = SparsePatternBlockMatcher(
+                block_size=args.block_size,
+                heuristic=args.heuristic
+            ).to(device)
             metrics = {
                 'mvc': MetricMVC().to(device),
                 'tc_sad': MetricsTCSAD().to(device)
