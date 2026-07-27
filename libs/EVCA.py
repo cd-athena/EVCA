@@ -10,7 +10,7 @@ from libs.feature_extraction import feature_extraction, temporal_feature_extract
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
 from libs.write_block_info import write_block_info
 from libs.plot_frame_metrics_EVCA import plot_frame_metrics_EVCA
-from libs.weight_dct import weight_dct_by_size
+from libs.weight_dct import weight_dct
 from libs.video_loader import load_gop, load_gop_optimized
 from libs.transforms import apply_luma_transform, apply_chroma_transform
 from libs.exporter import export_features_to_csv
@@ -76,7 +76,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             cb_size = args.block_size
             
         if args.chroma_complexity:
-            chroma_weights = weight_dct_by_size(cb_size, device)
+            chroma_weights = weight_dct(args, device, size=cb_size)
 
         for f in range(0, nframes, steps):
             actual_num_frames = len(range(f, min(nframes, f + steps), args.sample_rate))
