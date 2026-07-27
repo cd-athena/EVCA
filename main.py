@@ -48,6 +48,8 @@ def print_custom_help():
     print("-me/--motion_estimation   Enable Block-Based Motion Estimation (Block-ME)")
     print('--heuristic               Search pattern geometry: "diamond" (13-point) or "square" (9-point).')
     print('--loader                  Select the I/O pipeline: "standard" (sequential reads, low memory) or "optimized" (memory-mapped, high throughput but may cause OOM error).')
+    print('--bit_depth               Bit depth of the raw YUV video. Default: 8')
+    print('--profile                 ME Profile. "fast" outputs spatial TC_SAD/MVC. "full" executes the heavy DCT to output true TC_MC.')
 
 def get_parser_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=False, )
@@ -72,6 +74,8 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-me', '--motion_estimation', action='store_true')
     parser.add_argument('--heuristic', type=str, default='diamond', choices=['diamond', 'square'])
     parser.add_argument('--loader', type=str, default='standard', choices=['standard', 'optimized'])
+    parser.add_argument('--bit_depth', type=int, default=8, choices=[8, 10, 12])
+    parser.add_argument('--profile', type=str, default='fast', choices=['fast', 'full'])
     return parser.parse_args()
 
 

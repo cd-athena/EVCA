@@ -27,6 +27,10 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         pix_size = 3
 
     steps = args.gopsize
+    
+    # Pre-compute the DCT weight tensor
+    cached_weights_dct = weight_dct(args, device)
+    
     for file in input_list:
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
         nframes = args.frames if args.frames != 0 else number_of_frames
@@ -48,10 +52,14 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         temporal_engine = None
         out_mvc = []
         out_tcsad = []
+        out_tcmc = []
+        
         if args.motion_estimation:
+            dilation_factor = max(1, width // 1920) # 1080p has multiplier of 1
             me_module = SparsePatternBlockMatcher(
                 block_size=args.block_size,
-                heuristic=args.heuristic
+                heuristic=args.heuristic,
+                dilation=dilation_factor
             ).to(device)
             metrics = {
                 'mvc': MetricMVC().to(device),
@@ -99,17 +107,39 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                     current_frames = me_input_frames[1:]
                     ref_frames = me_input_frames[:-1]
                     # batched ME and metrics
-                    me_results = temporal_engine(current_frames, ref_frames)
+                    me_results, me_state = temporal_engine(current_frames, ref_frames)
                     mvc_batch = me_results['mvc'].cpu().numpy().ravel()
                     tcsad_batch = me_results['tc_sad'].cpu().numpy().ravel()
                     
+                    tcmc_batch = None
+                    tc_uncomp_batch = None
+                    if args.profile == 'full':
+                        # evaluate motion-compensated Residual (TC_MC)
+                        # extract spatial residual dynamically
+                        residual_tensor = me_state.residual
+                        # reshape 6D block tensor into 3D block stack
+                        residual_flat = residual_tensor.view(-1, args.block_size, args.block_size)
+                        DTs_mc = apply_luma_transform(args, residual_flat, dwt_model=dwt)
+                        # extract high-frequency weighted energy (mimicks EVCA)
+                        _, SC_blocks_mc, _ = feature_extraction(args, DTs_mc, current_frames.shape[0], device, cached_weights_dct)
+                        # collapse block energies into frame-level TC_MC score
+                        num_blocks = (width // args.block_size) * (height // args.block_size)
+                        tcmc_frame = SC_blocks_mc.sum(dim=1) / num_blocks
+                        # block_area = args.block_size ** 2
+                        # tcmc_frame = energy_mc.reshape(current_frames.shape[0], -1).sum(dim=1) / (num_blocks * block_area)
+                        tcmc_batch = tcmc_frame.cpu().numpy().ravel()
+                        
                     if f == 0:
                         # pad first frame with 0 (since it has no reference)
                         out_mvc.extend([0.0] + list(mvc_batch))
                         out_tcsad.extend([0.0] + list(tcsad_batch))
+                        if tcmc_batch is not None:
+                            out_tcmc.extend([0.0] + list(tcmc_batch))
                     else:
                         out_mvc.extend(list(mvc_batch))
                         out_tcsad.extend(list(tcsad_batch))
+                        if tcmc_batch is not None:
+                            out_tcmc.extend(list(tcmc_batch))
                 last_Y_frame = Y_frames[-1:]
                 
             # Chroma Processing
@@ -133,7 +163,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             # Luma Processing
             DTs = apply_luma_transform(args, Y_blocks, dwt_model=dwt)
 
-            B_blocks, SC_blocks, energy = feature_extraction(args, DTs, actual_num_frames, device)
+            B_blocks, SC_blocks, energy = feature_extraction(args, DTs, actual_num_frames, device, cached_weights_dct)
             TC_blocks, TC2_blocks = temporal_feature_extraction(args, f, SC_blocks, energy, last_SC, last_energy)
 
             last_energy = energy[-2:]
@@ -176,8 +206,9 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             out_frames_u=out_frames_u if args.chroma_complexity else None, 
             out_frames_v=out_frames_v if args.chroma_complexity else None,
             out_mvc=out_mvc if args.motion_estimation else None,
-            out_tcsad=out_tcsad if args.motion_estimation else None)
-        
+            out_tcsad=out_tcsad if args.motion_estimation else None,
+            out_tcmc=out_tcmc if (args.motion_estimation and args.profile == 'full') else None
+        )
         # Additional block plotting / metrics
         if args.block_info == 0 and args.plot_info == 1:
             args.block_info = 1

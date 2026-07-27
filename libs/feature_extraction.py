@@ -3,10 +3,9 @@ import argparse
 import numpy as np
 import torch
 
-from libs.weight_dct import weight_dct
 from typing import Tuple
 
-def feature_extraction(args: argparse.Namespace, DCTs, nframes, device):
+def feature_extraction(args: argparse.Namespace, DCTs, nframes, device, weights_dct):
     width = int(args.resolution.split('x')[0])
     height = int(args.resolution.split('x')[1])
 
@@ -15,14 +14,15 @@ def feature_extraction(args: argparse.Namespace, DCTs, nframes, device):
                          args.block_size)
     B_blocks = B_blocks[:, :, 0, 0] / (width * height)
 
-    ######## Energy of Blocks
-    weights_dct = weight_dct(args, device)
-    energy = torch.abs(DCTs * weights_dct.unsqueeze(0))
+    # Raw Energy of Blocks, passed to TC
+    energy = DCTs * weights_dct.unsqueeze(0)
     energy = energy.view(nframes,
                          (width // args.block_size) * (height // args.block_size), 
                          args.block_size, 
                          args.block_size)
-    SC_blocks = energy.mean(dim=[2, 3])
+    
+    # SC must use absolute values to prevent coefficients from canceling out
+    SC_blocks = torch.abs(energy).mean(dim=[2, 3])
 
     return B_blocks, SC_blocks, energy
 

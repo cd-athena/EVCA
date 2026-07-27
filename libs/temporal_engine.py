@@ -1,21 +1,67 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from dataclasses import dataclass
-from typing import Dict
+from dataclasses import dataclass, field
+from typing import Dict, Tuple
 
 @dataclass
 class TemporalState:
-    """Unified memory footprint for the metric pipeline."""
+    """Unified memory footprint (and lazy-evaluation graph) for the metric pipeline."""
     # Inputs
     current_frame: torch.Tensor     #[B, C, H, W]
     ref_frame: torch.Tensor         #[B, C, H, W]
+    bs: int = 32
     # Motion Estimation Outputs
-    mvs: torch.Tensor = None        #[2, H_blocks, W_blocks]
-    sad_map: torch.Tensor = None    #[1, H_blocks, W_blocks]
+    mvs: torch.Tensor = None        #[B, 2, H_blocks, W_blocks]
+    sad_map: torch.Tensor = None    #[B, 1, H_blocks, W_blocks]
     # Motion Compensation Outputs (Lazy/Optional)
-    mc_blocks: torch.Tensor = None  # Unfolded, motion-compensated blocks
-    residual: torch.Tensor = None   # current_blocks - mc_blocks
+    _mc_blocks: torch.Tensor = field(default=None, repr=False)  # Unfolded, motion-compensated blocks
+    _residual: torch.Tensor = field(default=None, repr=False)   # current_blocks - mc_blocks
+    
+    @property
+    def mc_blocks(self) -> torch.Tensor:
+        """Lazy evaluation of Motion-Compensated blocks"""
+        if self._mc_blocks is None:
+            if self.mvs is None:
+                raise ValueError("Motion vectors must be evaluated before extracting mc_blocks")
+            
+            B, C, H, W = self.ref_frame.shape
+            
+            # A: upsample block MVs to pixel MVs
+            pixel_mvs = F.interpolate(self.mvs.float(), size=(H, W), mode='nearest')
+            
+            # B: create a base coordinate grid for the image [-1, 1]
+            grid_y, grid_x = torch.meshgrid(
+                torch.linspace(-1, 1, H, device=self.ref_frame.device),
+                torch.linspace(-1, 1, W, device=self.ref_frame.device),
+                indexing='ij'
+            )
+            base_grid = torch.stack((grid_x, grid_y), dim=-1).unsqueeze(0).repeat(B, 1, 1, 1)
+            
+            # C: normalize MVs to grid space
+            dx = pixel_mvs[:, 1, :, :] / ((W - 1) / 2)
+            dy = pixel_mvs[:, 0, :, :] / ((H - 1) / 2)
+            normalized_mvs = torch.stack((dx, dy), dim=-1)
+            
+            shifted_grid = base_grid + normalized_mvs
+            
+            # D: hardware-accelerated image warping
+            mc_frame = F.grid_sample(self.ref_frame, shifted_grid, mode='nearest', padding_mode='border', align_corners=True)
+            
+            # E: Unfold into distinct blocks
+            self._mc_blocks = mc_frame.unfold(2, self.bs, self.bs).unfold(3, self.bs, self.bs).contiguous()
+            
+        return self._mc_blocks
+    
+    @property
+    def residual(self) -> torch.Tensor:
+        """Lazy evaluation of the motion-compensated spatial residual."""
+        if self._residual is None:
+            mc = self.mc_blocks
+            curr_blocks = self.current_frame.unfold(2, self.bs, self.bs).unfold(3, self.bs, self.bs).contiguous()
+            self._residual = curr_blocks - mc
+        return self._residual
+        
 
 class SparsePatternBlockMatcher(nn.Module):
     """
@@ -23,7 +69,7 @@ class SparsePatternBlockMatcher(nn.Module):
     Evaluates a static, deterministic diamond of motion vectors to achieve
     fast O(1) search complexity while preserving highly accurate heuristics.
     """
-    def __init__(self, block_size: int = 32, heuristic: str = 'diamond'):
+    def __init__(self, block_size: int = 32, heuristic: str = 'diamond', dilation: int = 1):
         super().__init__()
         self.bs = block_size
         self.bs_c = block_size // 2     # coarse block size
@@ -31,7 +77,7 @@ class SparsePatternBlockMatcher(nn.Module):
         if heuristic == 'diamond':
         # 1.a 13-point Large Diamond Pattern (Quarter-Resolution Offsets)
         # This gives us a highly efficient +/- 6 pixel effective search radius.
-            self.pattern = [
+            base_pattern = [
                 (0, 0),
                 (-1, 0), (1, 0), (0, -1), (0, 1),
                 (-2, 0), (2, 0), (0, -2), (0, 2),
@@ -40,7 +86,7 @@ class SparsePatternBlockMatcher(nn.Module):
         elif heuristic == 'square':
         # 1.b 9-point Sparse Square (Radius = 2 at quarter-res -> Effective +/- 4 pixels)
         # Captures center, cross, and extreme diagonals.
-            self.pattern = [
+            base_pattern = [
                 (0, 0),
                 (-2, 0), (2, 0), (0, -2), (0, 2),    # Cardinal directions
                 (-2, -2), (-2, 2), (2, -2), (2, 2)   # The Diagonals (1,1), (-1,-1), etc.
@@ -48,6 +94,9 @@ class SparsePatternBlockMatcher(nn.Module):
         else:
             raise ValueError(f"unknown heuristic pattern: {heuristic}")
         
+        # 1.c apply resolution-aware dilation: multiply offsets by dilation factor to 
+        # stretch the search horizon for large resolutions
+        self.pattern = [(dy * dilation, dx * dilation) for dy, dx in base_pattern]
         self.num_cands = len(self.pattern)
         
         # Calculate padding dynamically based on the pattern's maximum reach
@@ -134,8 +183,8 @@ class EVCATemporalEngine(nn.Module):
         self.me_module = motion_estimator
         self.metrics = nn.ModuleDict(metrics)
     
-    def forward(self, current_frame: torch.Tensor, ref_frame: torch.Tensor):
-        state = TemporalState(current_frame, ref_frame)
+    def forward(self, current_frame: torch.Tensor, ref_frame: torch.Tensor) -> Tuple[Dict[str, torch.Tensor], TemporalState]:
+        state = TemporalState(current_frame, ref_frame, bs=self.me_module.bs)
         # 1. hardware-accelerated batched ME
         state.mvs, state.sad_map = self.me_module(current_frame, ref_frame)
         # 2. evaluate registered plugins dynamically
@@ -143,6 +192,6 @@ class EVCATemporalEngine(nn.Module):
         for name, metric_module in self.metrics.items():
             results[name] = metric_module(state)
         
-        return results
+        return results, state
 
 
