@@ -22,7 +22,7 @@ def feature_extraction(args: argparse.Namespace, DCTs, nframes, device):
                          (width // args.block_size) * (height // args.block_size), 
                          args.block_size, 
                          args.block_size)
-    SC_blocks = energy.mean(dim=[2, 3]) / (args.block_size * args.block_size)
+    SC_blocks = energy.mean(dim=[2, 3])
 
     return B_blocks, SC_blocks, energy
 
@@ -41,8 +41,8 @@ def temporal_feature_extraction(args: argparse.Namespace, start_frame, SC_blocks
     elif args.method == 'EVCA':
         h_evca = torch.abs(energy_block[1 + int(bool(start_frame)):] - energy_block[int(bool(start_frame)):-1])
         h2_evca = torch.abs(energy_block[2:] - energy_block[:-2])
-        TC_blocks = h_evca.mean(dim=[2, 3]) / (args.block_size * args.block_size)
-        TC2_blocks = h2_evca.mean(dim=[2, 3]) / (args.block_size * args.block_size)
+        TC_blocks = h_evca.mean(dim=[2, 3])
+        TC2_blocks = h2_evca.mean(dim=[2, 3])
 
     return TC_blocks, TC2_blocks
 
