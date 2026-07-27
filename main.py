@@ -74,7 +74,7 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('-me', '--motion_estimation', action='store_true')
     parser.add_argument('--heuristic', type=str, default='diamond', choices=['diamond', 'square'])
     parser.add_argument('--loader', type=str, default='standard', choices=['standard', 'optimized'])
-    parser.add_argument('--bit_depth', type=int, default=8, choices=[8, 10, 12])
+    parser.add_argument('--bit_depth', type=int, default=8, choices=[8, 10, 12, 16])
     parser.add_argument('--profile', type=str, default='fast', choices=['fast', 'full'])
     return parser.parse_args()
 

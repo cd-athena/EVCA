@@ -20,11 +20,11 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
     width = int(args.resolution.split('x')[0])
     height = int(args.resolution.split('x')[1])
 
-    pix_size = 1.5
+    bytes_per_sample = 1 if args.bit_depth == 8 else 2
     if args.pix_fmt == 'yuv420':
-        pix_size = 1.5
+        pix_size = 1.5 * bytes_per_sample
     elif args.pix_fmt == 'yuv444':
-        pix_size = 3
+        pix_size = 3.0 * bytes_per_sample
 
     steps = args.gopsize
     

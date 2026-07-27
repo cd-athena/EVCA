@@ -20,7 +20,7 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
         U_blocks: Tensor of shape [Total_Blocks, cb_size, cb_size] or None
         V_blocks: Tensor of shape [Total_Blocks, cb_size, cb_size] or None
         colorfulness_batch: List of colorfulness floats
-        Y_frames: Tensore of shape [Batch, 1, Height, Width] (Float) for Mition Estimation
+        Y_frames: Tensor of shape [Batch, 1, Height, Width] (Float) for Motion Estimation
     """
     Y_blocks_list = []
     U_blocks_list = []
@@ -29,6 +29,7 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
     Y_frames_list = []
     
     frames = np.arange(start_frame, end_frame, args.sample_rate)
+    np_dtype = np.uint8 if args.bit_depth == 8 else np.uint16
     
     for frame in frames:
         # Seek to frame start
@@ -36,36 +37,38 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
         stream.seek(y_offset)
         
         # Read Y
-        Y = np.fromfile(stream, dtype=np.uint8, count=luma_size).reshape(height, width)
-        Y_t = torch.from_numpy(
-            Y[:height // args.block_size * args.block_size, :width // args.block_size * args.block_size]
-        ).to(device, non_blocking=True)
+        Y = np.fromfile(stream, dtype=np_dtype, count=luma_size).reshape(height, width)
         
-        Y_frames_list.append(Y_t.unsqueeze(0).unsqueeze(0).float()) # store full frame before slicing, adding [Batch, Channel] dims and casting to float
+        # PyTorch lacks uint16 support. Cast to int16 before loading to tensor.
+        Y_t = torch.from_numpy(
+            Y[:height // args.block_size * args.block_size, :width // args.block_size * args.block_size].astype(np.int16)
+        ).to(device, non_blocking=True).float()
+        
+        Y_frames_list.append(Y_t.unsqueeze(0).unsqueeze(0)) # store full frame before slicing, adding [Batch, Channel] dims
         
         b = Y_t.unfold(0, args.block_size, args.block_size).unfold(1, args.block_size, args.block_size).contiguous().view(-1, args.block_size, args.block_size)
         Y_blocks_list.append(b)
         
         # Read U and V if needed
         if args.chroma_complexity or args.colorfulness:
-            U = np.fromfile(stream, dtype=np.uint8, count=chroma_size).reshape(uv_h, uv_w)
-            V = np.fromfile(stream, dtype=np.uint8, count=chroma_size).reshape(uv_h, uv_w)
+            U = np.fromfile(stream, dtype=np_dtype, count=chroma_size).reshape(uv_h, uv_w)
+            V = np.fromfile(stream, dtype=np_dtype, count=chroma_size).reshape(uv_h, uv_w)
             
             if args.colorfulness:
                 # Edge case safety
                 if len(U.flatten()) < chroma_size or len(V.flatten()) < chroma_size:
                     colorfulness_batch.append(0.0)
                 else:
-                    colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U, V, bit_depth=8)
+                    colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U, V, bit_depth=args.bit_depth)
                     colorfulness_batch.append(colorfulness_val)
                     
             if args.chroma_complexity:
                 
                 U_t = torch.from_numpy(
-                    U[:uv_h // cb_size * cb_size, :uv_w // cb_size * cb_size]
+                    U[:uv_h // cb_size * cb_size, :uv_w // cb_size * cb_size].astype(np.int16)
                 ).to(device, non_blocking=True).float()
                 V_t = torch.from_numpy(
-                    V[:uv_h // cb_size * cb_size, :uv_w // cb_size * cb_size]
+                    V[:uv_h // cb_size * cb_size, :uv_w // cb_size * cb_size].astype(np.int16)
                 ).to(device, non_blocking=True).float()
                 
                 u_b = U_t.unfold(0, cb_size, cb_size).unfold(1, cb_size, cb_size).contiguous().view(-1, cb_size, cb_size)
@@ -112,36 +115,42 @@ def load_gop_optimized(args: argparse.Namespace, stream, start_frame: int, end_f
         # Apple MPS (Unified Memory) or CPU-only modes will bypass this safely.
         is_cuda = (device.type == 'cuda')
         
+        # Setup dynamic types and byte offsets
+        np_dtype = np.uint8 if args.bit_depth == 8 else np.uint16
+        pt_dtype = torch.uint8 if args.bit_depth == 8 else torch.int16
+        bytes_per_sample = 1 if args.bit_depth == 8 else 2
+        
         # 2. pre-allocate Pinned Memory (page-locked CPU RAM for fast PCIe DMA transfer)
-        Y_batch_cpu = torch.empty((num_frames, height, width), dtype=torch.uint8, pin_memory=is_cuda)
+        Y_batch_cpu = torch.empty((num_frames, height, width), dtype=pt_dtype, pin_memory=is_cuda)
         
         U_batch_cpu, V_batch_cpu = None, None
         colorfulness_batch = []
         if args.chroma_complexity or args.colorfulness:
-            U_batch_cpu = torch.empty((num_frames, uv_h, uv_w), dtype=torch.uint8, pin_memory=is_cuda)
-            V_batch_cpu = torch.empty((num_frames, uv_h, uv_w), dtype=torch.uint8, pin_memory=is_cuda)
+            U_batch_cpu = torch.empty((num_frames, uv_h, uv_w), dtype=pt_dtype, pin_memory=is_cuda)
+            V_batch_cpu = torch.empty((num_frames, uv_h, uv_w), dtype=pt_dtype, pin_memory=is_cuda)
         
         # 3. Populate pinned memory directly from the Memory Map
         for i, frame in enumerate(frames):
-            y_offset = frame * frame_byte_size
+            y_offset = int(frame * frame_byte_size)
             
             # Extract Y (Luma)
-            Y_view = np.frombuffer(mm, dtype=np.uint8, count=luma_size, offset=y_offset).reshape(height, width)
-            Y_batch_cpu[i].copy_(torch.from_numpy(Y_view))
+            Y_view = np.frombuffer(mm, dtype=np_dtype, count=luma_size, offset=y_offset).reshape(height, width)
+            # Use .view(np.int16) to map to a supported type without copying memory
+            Y_batch_cpu[i].copy_(torch.from_numpy(Y_view.view(np.int16)))
             
             # Extract U and V (Chroma)
             if U_batch_cpu is not None:
-                u_offset = y_offset + luma_size
-                v_offset = u_offset + chroma_size
+                u_offset = int(y_offset + (luma_size * bytes_per_sample))
+                v_offset = int(u_offset + (chroma_size * bytes_per_sample))
                 
-                U_view = np.frombuffer(mm, dtype=np.uint8, count=chroma_size, offset=u_offset).reshape(uv_h, uv_w)
-                V_view = np.frombuffer(mm, dtype=np.uint8, count=chroma_size, offset=v_offset).reshape(uv_h, uv_w)
+                U_view = np.frombuffer(mm, dtype=np_dtype, count=chroma_size, offset=u_offset).reshape(uv_h, uv_w)
+                V_view = np.frombuffer(mm, dtype=np_dtype, count=chroma_size, offset=v_offset).reshape(uv_h, uv_w)
                 
-                U_batch_cpu[i].copy_(torch.from_numpy(U_view))
-                V_batch_cpu[i].copy_(torch.from_numpy(V_view))
+                U_batch_cpu[i].copy_(torch.from_numpy(U_view.view(np.int16)))
+                V_batch_cpu[i].copy_(torch.from_numpy(V_view.view(np.int16)))
                 
                 if args.colorfulness:
-                    colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U_view, V_view, bit_depth=8)
+                    colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U_view, V_view, bit_depth=args.bit_depth)
                     colorfulness_batch.append(colorfulness_val)
         
         # Delete the zero-copy views to release the C-level exported buffer pointers. 
