@@ -175,5 +175,31 @@ class TestEVCA_CLI(unittest.TestCase):
         self.assertIn('TC_SAD', df.columns, "TC_SAD missing in 10-bit ME run.")
         self.assertIn('TC_MC', df.columns, "TC_MC missing in 10-bit ME run.")
 
+    def test_12_plot_info_chroma(self):
+        """Test -pi 1 combined with --chroma_complexity to ensure block export and plot generation works without FileNotFoundError."""
+        csv_out = './csv/test_pi_chroma.csv'
+        self.run_cli_command(['-pi', '1', '--chroma_complexity', '-c', csv_out])
+        
+        self.assertTrue(os.path.exists('./csv/test_pi_chroma_SC_u_blocks.csv'), "SC_u_blocks.csv missing.")
+        self.assertTrue(os.path.exists('./csv/test_pi_chroma_SC_v_blocks.csv'), "SC_v_blocks.csv missing.")
+        self.assertTrue(os.path.exists('./png/EVCA_frame_000.png'), "Per-frame plot missing.")
+
+    def test_13_plot_info_motion_estimation(self):
+        """Test -pi 1 combined with -me to ensure block-level SAD and MV heatmaps are written and plotted."""
+        csv_out = './csv/test_pi_me.csv'
+        self.run_cli_command(['-pi', '1', '-me', '-c', csv_out])
+        
+        self.assertTrue(os.path.exists('./csv/test_pi_me_SAD_blocks.csv'), "SAD_blocks.csv missing.")
+        self.assertTrue(os.path.exists('./csv/test_pi_me_MV_blocks.csv'), "MV_blocks.csv missing.")
+        self.assertTrue(os.path.exists('./png/EVCA_frame_000.png'), "Per-frame motion plot missing.")
+
+    def test_14_plot_info_motion_full_profile(self):
+        """Test -pi 1 combined with -me --profile full to ensure TCMC_blocks.csv is written and plotted."""
+        csv_out = './csv/test_pi_me_full.csv'
+        self.run_cli_command(['-pi', '1', '-me', '--profile', 'full', '-c', csv_out])
+        
+        self.assertTrue(os.path.exists('./csv/test_pi_me_full_TCMC_blocks.csv'), "TCMC_blocks.csv missing.")
+        self.assertTrue(os.path.exists('./png/EVCA_frame_000.png'), "Per-frame full profile motion plot missing.")
+
 if __name__ == '__main__':
     unittest.main()

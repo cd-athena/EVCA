@@ -41,6 +41,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         last_energy = torch.tensor([], device=device)
         last_SC = torch.tensor([], device=device)
 
+        need_block_info = bool(args.block_info or args.plot_info)
+
         out_frames = [[] for _ in range(5)] if args.colorfulness else [[] for _ in range(4)]
         out_blocks = [[] for _ in range(4)]
         
@@ -48,6 +50,10 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_frames_v = []
         out_blocks_u = []
         out_blocks_v = []
+        
+        out_blocks_sad = []
+        out_blocks_mv = []
+        out_blocks_tcmc = []
         
         temporal_engine = None
         out_mvc = []
@@ -111,6 +117,13 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                     mvc_batch = me_results['mvc'].cpu().numpy().ravel()
                     tcsad_batch = me_results['tc_sad'].cpu().numpy().ravel()
                     
+                    if need_block_info:
+                        sad_map_flat = me_state.sad_map.squeeze(1).reshape(current_frames.shape[0], -1)
+                        out_blocks_sad.append(sad_map_flat.detach())
+                        mv_mag = torch.sqrt(me_state.mvs[:, 0]**2 + me_state.mvs[:, 1]**2)
+                        mv_flat = mv_mag.reshape(current_frames.shape[0], -1)
+                        out_blocks_mv.append(mv_flat.detach())
+                    
                     tcmc_batch = None
                     tc_uncomp_batch = None
                     if args.profile == 'full':
@@ -122,6 +135,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         DTs_mc = apply_luma_transform(args, residual_flat, dwt_model=dwt)
                         # extract high-frequency weighted energy (mimicks EVCA)
                         _, SC_blocks_mc, _ = feature_extraction(args, DTs_mc, current_frames.shape[0], device, cached_weights_dct)
+                        if need_block_info:
+                            out_blocks_tcmc.append(SC_blocks_mc.detach())
                         # collapse block energies into frame-level TC_MC score
                         num_blocks = (width // args.block_size) * (height // args.block_size)
                         tcmc_frame = SC_blocks_mc.sum(dim=1) / num_blocks
@@ -173,7 +188,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             B_frame = B_blocks.mean(dim=1)
             SC_frame = SC_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
             TC_frame = TC_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
-            TC2_frame = TC2_blocks.sum(dim=[1]) / ((width // args.block_size) * (height) // args.block_size)
+            TC2_frame = TC2_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
 
             B_frame = B_frame.cpu().numpy().ravel()
             SC_frame = SC_frame.cpu().numpy().ravel()
@@ -237,10 +252,15 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
         if args.block_info:
-            if args.chroma_complexity:
-                write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames, out_blocks_u, out_frames_v)
-            else:
-                write_block_info(args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames)
+            write_block_info(
+                args, out_blocks[0], out_blocks[1], out_blocks[2], out_blocks[3], number_of_frames,
+                SC_u=out_blocks_u if args.chroma_complexity else None,
+                SC_v=out_blocks_v if args.chroma_complexity else None,
+                sad_blocks=out_blocks_sad if args.motion_estimation else None,
+                mv_blocks=out_blocks_mv if args.motion_estimation else None,
+                tcmc_blocks=out_blocks_tcmc if (args.motion_estimation and args.profile == 'full') else None
+            )
+
         if args.plot_info:
             plot_block_info_EVCA(args, number_of_frames)
         if args.plot_metrics:

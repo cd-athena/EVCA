@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 
-def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of_frames, SC_u=None, SC_v=None):
+def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of_frames, SC_u=None, SC_v=None, sad_blocks=None, mv_blocks=None, tcmc_blocks=None):
     directory, file_name = os.path.split(args.csv)
     directory = './csv' if directory == '' else directory
 
@@ -91,3 +91,39 @@ def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of
             df_SC_v_blocks[f'frame_{i:03d}'] = SC_v[i, :]
             
         df_SC_v_blocks.to_csv(f'{directory}/{file_name[:-4]}_SC_v_blocks.csv', index=False)
+
+    # ----------------- SAD_blocks -----------------
+    if sad_blocks is not None and len(sad_blocks) > 0:
+        sad_tensor = torch.cat(sad_blocks, dim=0)
+        sad_tensor = sad_tensor.view(len(np.arange(0, n_frames, args.sample_rate)) - 1, -1).cpu().numpy()
+        df_sad = pd.DataFrame(columns=[f'frame_{i:03d}' for i in range(0, len(np.arange(0, n_frames, args.sample_rate)))])
+        for i in range(0, len(np.arange(0, n_frames, args.sample_rate))):
+            if i == 0:
+                df_sad[f'frame_{i:03d}'] = np.zeros(sad_tensor.shape[1])
+            else:
+                df_sad[f'frame_{i:03d}'] = sad_tensor[i - 1, :]
+        df_sad.to_csv(f'{directory}/{file_name[:-4]}_SAD_blocks.csv', index=False)
+
+    # ----------------- MV_blocks -----------------
+    if mv_blocks is not None and len(mv_blocks) > 0:
+        mv_tensor = torch.cat(mv_blocks, dim=0)
+        mv_tensor = mv_tensor.view(len(np.arange(0, n_frames, args.sample_rate)) - 1, -1).cpu().numpy()
+        df_mv = pd.DataFrame(columns=[f'frame_{i:03d}' for i in range(0, len(np.arange(0, n_frames, args.sample_rate)))])
+        for i in range(0, len(np.arange(0, n_frames, args.sample_rate))):
+            if i == 0:
+                df_mv[f'frame_{i:03d}'] = np.zeros(mv_tensor.shape[1])
+            else:
+                df_mv[f'frame_{i:03d}'] = mv_tensor[i - 1, :]
+        df_mv.to_csv(f'{directory}/{file_name[:-4]}_MV_blocks.csv', index=False)
+
+    # ----------------- TCMC_blocks -----------------
+    if tcmc_blocks is not None and len(tcmc_blocks) > 0:
+        tcmc_tensor = torch.cat(tcmc_blocks, dim=0)
+        tcmc_tensor = tcmc_tensor.view(len(np.arange(0, n_frames, args.sample_rate)) - 1, -1).cpu().numpy()
+        df_tcmc = pd.DataFrame(columns=[f'frame_{i:03d}' for i in range(0, len(np.arange(0, n_frames, args.sample_rate)))])
+        for i in range(0, len(np.arange(0, n_frames, args.sample_rate))):
+            if i == 0:
+                df_tcmc[f'frame_{i:03d}'] = np.zeros(tcmc_tensor.shape[1])
+            else:
+                df_tcmc[f'frame_{i:03d}'] = tcmc_tensor[i - 1, :]
+        df_tcmc.to_csv(f'{directory}/{file_name[:-4]}_TCMC_blocks.csv', index=False)

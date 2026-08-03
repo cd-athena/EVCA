@@ -1,5 +1,4 @@
 import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -17,57 +16,72 @@ def plot_block_info_EVCA(args, number_of_frames):
     grid_h = int(height // args.block_size)
     grid_w = int(width // args.block_size)
 
-    for frame in frames:
+    # Load block CSV data if files exist
+    csv_base = args.csv[:-4]
+    
+    df_B = pd.read_csv(f'{csv_base}_B_blocks.csv') if os.path.exists(f'{csv_base}_B_blocks.csv') else None
+    df_SC = pd.read_csv(f'{csv_base}_SC_blocks.csv') if os.path.exists(f'{csv_base}_SC_blocks.csv') else None
+    df_TC = pd.read_csv(f'{csv_base}_TC_blocks.csv') if os.path.exists(f'{csv_base}_TC_blocks.csv') else None
+    
+    df_SC_u = pd.read_csv(f'{csv_base}_SC_u_blocks.csv') if args.chroma_complexity and os.path.exists(f'{csv_base}_SC_u_blocks.csv') else None
+    df_SC_v = pd.read_csv(f'{csv_base}_SC_v_blocks.csv') if args.chroma_complexity and os.path.exists(f'{csv_base}_SC_v_blocks.csv') else None
+    
+    is_me = getattr(args, 'motion_estimation', False)
+    df_SAD = pd.read_csv(f'{csv_base}_SAD_blocks.csv') if is_me and os.path.exists(f'{csv_base}_SAD_blocks.csv') else None
+    df_MV = pd.read_csv(f'{csv_base}_MV_blocks.csv') if is_me and os.path.exists(f'{csv_base}_MV_blocks.csv') else None
+    df_TCMC = pd.read_csv(f'{csv_base}_TCMC_blocks.csv') if is_me and getattr(args, 'profile', 'fast') == 'full' and os.path.exists(f'{csv_base}_TCMC_blocks.csv') else None
 
+    for frame in frames:
+        col_name = f'frame_{frame:03d}'
+        
         if args.pix_fmt == 'yuv420':
             stream.seek(int(frame) * int(width) * int(height) * 3 // 2)
         elif args.pix_fmt == 'yuv444':
             stream.seek(int(frame) * int(width) * int(height) * 3)
         Y = np.fromfile(stream, dtype=np.uint8, count=width * height).reshape(height, width)
-        image1 = Y
-
-        df = pd.read_csv(f'{args.csv[:-4]}_B_blocks.csv')
-        B = df[f'frame_{frame:03d}'].values.reshape(grid_h, grid_w)
-        image2 = B
-
-        df = pd.read_csv(f'{args.csv[:-4]}_SC_blocks.csv')
-        SC = df[f'frame_{frame:03d}'].values.reshape(grid_h, grid_w)
-        image3 = SC
-
-        df = pd.read_csv(f'{args.csv[:-4]}_TC_blocks.csv')
-        TC = df[f'frame_{frame:03d}'].values.reshape(grid_h, grid_w)
-        image4 = TC
         
-        if args.chroma_complexity:
-            df = pd.read_csv(f'{args.csv[:-4]}_SC_chroma_blocks.csv')
-            SC_c = df[f'frame_{frame:03d}'].values.reshape(grid_h, grid_w)
-            image5 = SC_c
+        plot_items = [(Y, 'Original Frame')]
+        
+        if df_B is not None and col_name in df_B.columns:
+            plot_items.append((df_B[col_name].values.reshape(grid_h, grid_w), 'Brightness'))
+        if df_SC is not None and col_name in df_SC.columns:
+            plot_items.append((df_SC[col_name].values.reshape(grid_h, grid_w), 'Spatial Complexity'))
+        if df_TC is not None and col_name in df_TC.columns:
+            plot_items.append((df_TC[col_name].values.reshape(grid_h, grid_w), 'Temporal Complexity'))
             
-            fig, axes = plt.subplots(1, 5, figsize=(15, 5))
-            
-            axes[4].imshow(image5, cmap='gray')
-            axes[4].set_title('Spatial Chroma Complexity (U/V)')
-            axes[4].axis('off')  # Turn off axis
-            
+        if df_SC_u is not None and col_name in df_SC_u.columns:
+            plot_items.append((df_SC_u[col_name].values.reshape(grid_h, grid_w), 'Chroma SC (U)'))
+        if df_SC_v is not None and col_name in df_SC_v.columns:
+            plot_items.append((df_SC_v[col_name].values.reshape(grid_h, grid_w), 'Chroma SC (V)'))
+
+        if df_SAD is not None and col_name in df_SAD.columns:
+            plot_items.append((df_SAD[col_name].values.reshape(grid_h, grid_w), 'Motion SAD'))
+        if df_MV is not None and col_name in df_MV.columns:
+            plot_items.append((df_MV[col_name].values.reshape(grid_h, grid_w), 'Motion Vector Mag'))
+        if df_TCMC is not None and col_name in df_TCMC.columns:
+            plot_items.append((df_TCMC[col_name].values.reshape(grid_h, grid_w), 'Motion Residual SC'))
+
+        num_plots = len(plot_items)
+        if num_plots <= 5:
+            nrows, ncols = 1, num_plots
         else:
-            fig, axes = plt.subplots(1, 4, figsize=(12, 5))
+            nrows = 2
+            ncols = (num_plots + 1) // 2
 
+        fig, axes = plt.subplots(nrows, ncols, figsize=(3.5 * ncols, 3.5 * nrows))
+        axes_flat = np.array(axes).reshape(-1) if num_plots > 1 else np.array([axes])
 
-        axes[0].imshow(image1, cmap='gray')
-        axes[0].set_title(f'Orginal Frame')
-        axes[0].axis('off')  # Turn off axis
+        for idx, (img, title) in enumerate(plot_items):
+            axes_flat[idx].imshow(img, cmap='gray')
+            axes_flat[idx].set_title(title)
+            axes_flat[idx].axis('off')
 
-        axes[1].imshow(image2, cmap='gray')
-        axes[1].set_title('Brightness')
-        axes[1].axis('off')  # Turn off axis
+        for idx in range(num_plots, nrows * ncols):
+            axes_flat[idx].axis('off')
 
-        axes[2].imshow(image3, cmap='gray')
-        axes[2].set_title('Spatial Complexity')
-        axes[2].axis('off')  # Turn off axis
-
-        axes[3].imshow(image4, cmap='gray')
-        axes[3].set_title('Temporal Complexity')
-        axes[3].axis('off')  # Turn off axis
-
+        plt.tight_layout()
         plt.savefig(f'png/{args.method}_frame_{frame:03d}.png', bbox_inches='tight', dpi=args.dpi)
-        plt.close()
+        plt.close(fig)
+
+    stream.close()
+
