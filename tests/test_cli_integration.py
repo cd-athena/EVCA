@@ -131,5 +131,49 @@ class TestEVCA_CLI(unittest.TestCase):
             f"Chroma complexity column 'SC_v' is missing from CSV headers: {list(df.columns)}."
         )
 
+    def test_08_motion_estimation_fast_profile(self):
+        """Test motion estimation with default fast profile."""
+        csv_out = './csv/test_me_fast.csv'
+        self.run_cli_command(['-me', '-c', csv_out])
+        
+        self.assertTrue(os.path.exists(csv_out), "CSV file was not created for fast profile ME.")
+        df = pd.read_csv(csv_out)
+        self.assertEqual(len(df), self.frames, "CSV row count does not match frame count.")
+        self.assertIn('MVC', df.columns, "Motion vector complexity 'MVC' missing.")
+        self.assertIn('TC_SAD', df.columns, "Temporal complexity SAD 'TC_SAD' missing.")
+        self.assertNotIn('TC_MC', df.columns, "TC_MC should not exist in fast profile ME.")
+
+    def test_09_motion_estimation_full_profile(self):
+        """Test motion estimation with full profile incorporating spatial residual transform."""
+        csv_out = './csv/test_me_full.csv'
+        self.run_cli_command(['-me', '--profile', 'full', '-c', csv_out])
+        
+        self.assertTrue(os.path.exists(csv_out), "CSV file was not created for full profile ME.")
+        df = pd.read_csv(csv_out)
+        self.assertEqual(len(df), self.frames, "CSV row count does not match frame count.")
+        self.assertIn('MVC', df.columns, "Motion vector complexity 'MVC' missing.")
+        self.assertIn('TC_SAD', df.columns, "Temporal complexity SAD 'TC_SAD' missing.")
+        self.assertIn('TC_MC', df.columns, "Motion-compensated complexity 'TC_MC' missing in full profile.")
+
+    def test_10_motion_estimation_square_heuristic(self):
+        """Test motion estimation using square search pattern geometry."""
+        csv_out = './csv/test_me_square.csv'
+        self.run_cli_command(['-me', '--heuristic', 'square', '-c', csv_out])
+        
+        self.assertTrue(os.path.exists(csv_out), "CSV file was not created for square heuristic ME.")
+        df = pd.read_csv(csv_out)
+        self.assertIn('MVC', df.columns, "MVC column missing in square heuristic run.")
+        self.assertIn('TC_SAD', df.columns, "TC_SAD column missing in square heuristic run.")
+
+    def test_11_motion_estimation_bit_depth_scaling(self):
+        """Test motion estimation with 10-bit bit depth scaling."""
+        csv_out = './csv/test_me_10bit.csv'
+        self.run_cli_command(['-me', '--profile', 'full', '--bit_depth', '10', '-c', csv_out])
+        
+        self.assertTrue(os.path.exists(csv_out), "CSV file was not created for 10-bit ME.")
+        df = pd.read_csv(csv_out)
+        self.assertIn('TC_SAD', df.columns, "TC_SAD missing in 10-bit ME run.")
+        self.assertIn('TC_MC', df.columns, "TC_MC missing in 10-bit ME run.")
+
 if __name__ == '__main__':
     unittest.main()
