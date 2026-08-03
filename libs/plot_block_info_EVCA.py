@@ -55,11 +55,11 @@ def plot_block_info_EVCA(args, number_of_frames):
             plot_items.append((df_SC_v[col_name].values.reshape(grid_h, grid_w), 'Chroma SC (V)'))
 
         if df_SAD is not None and col_name in df_SAD.columns:
-            plot_items.append((df_SAD[col_name].values.reshape(grid_h, grid_w), 'TC_SAD (Block-level SAD prediction error)'))
+            plot_items.append((df_SAD[col_name].values.reshape(grid_h, grid_w), 'Prediction error (TC_SAD)'))
         if df_MV is not None and col_name in df_MV.columns:
-            plot_items.append((df_MV[col_name].values.reshape(grid_h, grid_w), 'MVC (Block-level motion vector magnitudes)'))
+            plot_items.append((df_MV[col_name].values.reshape(grid_h, grid_w), 'Motion Vector Magnitudes (MVC)'))
         if df_TCMC is not None and col_name in df_TCMC.columns:
-            plot_items.append((df_TCMC[col_name].values.reshape(grid_h, grid_w), 'TC_MC (Motion-compensated residual complexity)'))
+            plot_items.append((df_TCMC[col_name].values.reshape(grid_h, grid_w), 'Residual complexity (TC_MC)'))
 
         num_plots = len(plot_items)
         if num_plots <= 5:
