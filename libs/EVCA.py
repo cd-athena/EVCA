@@ -200,6 +200,27 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                 out_frames[4].extend(colorfulness_batch)
 
         stream.close()
+    
+        # Bit-Depth Normalization (Amplitude Scaling)
+        # Brings 10-bit and 12-bit metrics down to an 8-bit equivalent scale.
+        if args.bit_depth > 8:
+            bit_scale = 2 ** (args.bit_depth - 8)
+            
+            # Scale Luma Complexity
+            out_frames[1] = (np.array(out_frames[1]) / bit_scale).tolist()  # SC
+            out_frames[2] = (np.array(out_frames[2]) / bit_scale).tolist()  # TC
+            out_frames[3] = (np.array(out_frames[3]) / bit_scale).tolist()  # TC2
+            
+            # Scale Chroma Complexity
+            if args.chroma_complexity:
+                out_frames_u = (np.array(out_frames_u) / bit_scale).tolist()
+                out_frames_v = (np.array(out_frames_v) / bit_scale).tolist()
+                
+            # Scale Spatial Residuals
+            if args.motion_estimation:
+                out_tcsad = (np.array(out_tcsad) / bit_scale).tolist()
+                if args.profile == 'full':
+                    out_tcmc = (np.array(out_tcmc) / bit_scale).tolist()
 
         # Export CSV
         final_csv_path = export_features_to_csv(args, file, out_frames,
