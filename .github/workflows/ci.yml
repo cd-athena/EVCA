@@ -3,7 +3,7 @@ name: EVCA Continuous Integration
 # Trigger the workflow on pushes to main, or any Pull Request targeting main
 on:
   push:
-    branches: [ main, colorfulness ]
+    branches: [ main, colorfulness, motion_compensation ]
   pull_request:
     branches: [ main ]
 
