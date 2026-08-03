@@ -25,6 +25,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         pix_size = 1.5 * bytes_per_sample
     elif args.pix_fmt == 'yuv444':
         pix_size = 3.0 * bytes_per_sample
+    else:
+        raise ValueError(f"Unsupported pixel format '{args.pix_fmt}'. Supported formats are 'yuv420' and 'yuv444'.")
 
     steps = args.gopsize
     

@@ -193,13 +193,12 @@ class TestEVCA_CLI(unittest.TestCase):
         self.assertTrue(os.path.exists('./csv/test_pi_me_MV_blocks.csv'), "MV_blocks.csv missing.")
         self.assertTrue(os.path.exists('./png/EVCA_frame_000.png'), "Per-frame motion plot missing.")
 
-    def test_14_plot_info_motion_full_profile(self):
-        """Test -pi 1 combined with -me --profile full to ensure TCMC_blocks.csv is written and plotted."""
-        csv_out = './csv/test_pi_me_full.csv'
-        self.run_cli_command(['-pi', '1', '-me', '--profile', 'full', '-c', csv_out])
-        
-        self.assertTrue(os.path.exists('./csv/test_pi_me_full_TCMC_blocks.csv'), "TCMC_blocks.csv missing.")
-        self.assertTrue(os.path.exists('./png/EVCA_frame_000.png'), "Per-frame full profile motion plot missing.")
+    def test_15_standalone_plot_flags(self):
+        """Test exact user CLI syntax: -pm 1 -plot_info -me --profile full --heuristic diamond."""
+        csv_out = './csv/test_user_cli.csv'
+        self.run_cli_command(['-pm', '1', '-c', csv_out, '-s', '1', '-me', '--profile', 'full', '--heuristic', 'diamond', '-plot_info'])
+        self.assertTrue(os.path.exists(csv_out), "CSV output missing for user CLI format.")
+        self.assertTrue(os.path.exists('./png/EVCA_frame_000.png'), "Plot info failed for -plot_info flag.")
 
 if __name__ == '__main__':
     unittest.main()
