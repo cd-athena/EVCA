@@ -30,8 +30,12 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
     steps = args.gopsize
     
-    # Pre-compute the DCT weight tensor
+    # Pre-compute the DCT weight tensor (32x32)
     cached_weights_dct = weight_dct(args, device)
+    
+    # Pre-compute sub-TU DCT weights (16x16) for residual processing
+    sub_tu_size = args.block_size // 2
+    cached_weights_dct_sub = weight_dct(args, device, size=sub_tu_size)
     
     for file in input_list:
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
@@ -104,6 +108,15 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                 width, height, pix_size, luma_size, chroma_size, uv_w, uv_h, cb_size
             )
             
+            # Luma Processing
+            DTs = apply_luma_transform(args, Y_blocks, dwt_model=dwt)
+
+            B_blocks, SC_blocks, energy = feature_extraction(args, DTs, actual_num_frames, device, cached_weights_dct)
+            TC_blocks, TC2_blocks = temporal_feature_extraction(args, f, SC_blocks, energy, last_SC, last_energy)
+
+            last_energy = energy[-2:]
+            last_SC = SC_blocks[-2:]
+            
             # Motion Estimation
             if temporal_engine is not None and Y_frames.shape[0] > 0:
                 if last_Y_frame is not None:
@@ -131,19 +144,23 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                     if args.profile == 'full':
                         # evaluate motion-compensated Residual (TC_MC)
                         # extract spatial residual dynamically
+                        # Spatial residual tensor of shape: [B, 1, H_blocks, W_blocks, 32, 32]
                         residual_tensor = me_state.residual
-                        # reshape 6D block tensor into 3D block stack
+                        # reshape 6D block tensor into 3D block stack: [Total_32x32_Blocks, 32, 32]
                         residual_flat = residual_tensor.view(-1, args.block_size, args.block_size)
                         DTs_mc = apply_luma_transform(args, residual_flat, dwt_model=dwt)
                         # extract high-frequency weighted energy (mimicks EVCA)
                         _, SC_blocks_mc, _ = feature_extraction(args, DTs_mc, current_frames.shape[0], device, cached_weights_dct)
+                        
+                        # intra-mode energy gating
+                        curr_SC_blocks = SC_blocks[1:] if f == 0 else SC_blocks
+                        SC_blocks_mc = torch.minimum(SC_blocks_mc, curr_SC_blocks)
+                        
                         if need_block_info:
                             out_blocks_tcmc.append(SC_blocks_mc.detach())
                         # collapse block energies into frame-level TC_MC score
                         num_blocks = (width // args.block_size) * (height // args.block_size)
                         tcmc_frame = SC_blocks_mc.sum(dim=1) / num_blocks
-                        # block_area = args.block_size ** 2
-                        # tcmc_frame = energy_mc.reshape(current_frames.shape[0], -1).sum(dim=1) / (num_blocks * block_area)
                         tcmc_batch = tcmc_frame.cpu().numpy().ravel()
                         
                     if f == 0:
@@ -177,14 +194,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                 out_blocks_u.extend(SC_u_blocks)
                 out_blocks_v.extend(SC_v_blocks)
             
-            # Luma Processing
-            DTs = apply_luma_transform(args, Y_blocks, dwt_model=dwt)
 
-            B_blocks, SC_blocks, energy = feature_extraction(args, DTs, actual_num_frames, device, cached_weights_dct)
-            TC_blocks, TC2_blocks = temporal_feature_extraction(args, f, SC_blocks, energy, last_SC, last_energy)
-
-            last_energy = energy[-2:]
-            last_SC = SC_blocks[-2:]
 
             # Aggregation
             B_frame = B_blocks.mean(dim=1)

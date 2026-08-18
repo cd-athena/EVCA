@@ -20,37 +20,57 @@ class TemporalState:
     
     @property
     def mc_blocks(self) -> torch.Tensor:
-        """Lazy evaluation of Motion-Compensated blocks"""
+        """Lazy evaluation of Motion-Compensated blocks with field smoothing."""
         if self._mc_blocks is None:
             if self.mvs is None:
                 raise ValueError("Motion vectors must be evaluated before extracting mc_blocks")
-            
+
             B, C, H, W = self.ref_frame.shape
+
+            # 1. Coarse Vector Field Gaussian Smoothing (3x3 Kernel)
+            # Replicate-pad by 1 to prevent boundary shrinkage
+            mvs_padded = F.pad(self.mvs.float(), (1, 1, 1, 1), mode='replicate')
             
-            # A: upsample block MVs to pixel MVs
-            pixel_mvs = F.interpolate(self.mvs.float(), size=(H, W), mode='nearest')
+            gauss_kernel = torch.tensor([
+                [1.0, 2.0, 1.0],
+                [2.0, 4.0, 2.0],
+                [1.0, 2.0, 1.0]
+            ], dtype=torch.float32, device=self.ref_frame.device) / 16.0
             
-            # B: create a base coordinate grid for the image [-1, 1]
+            # Repeat for both dx and dy channels: [2, 1, 3, 3]
+            weight = gauss_kernel.repeat(2, 1, 1, 1)
+            mvs_smooth = F.conv2d(mvs_padded, weight, groups=2)
+
+            # 2. Continuous Bilinear Upsampling to Pixel Grid
+            pixel_mvs = F.interpolate(mvs_smooth, size=(H, W), mode='bilinear', align_corners=True)
+
+            # 3. Normalized Sampling Grid Construction [-1, 1]
             grid_y, grid_x = torch.meshgrid(
                 torch.linspace(-1, 1, H, device=self.ref_frame.device),
                 torch.linspace(-1, 1, W, device=self.ref_frame.device),
                 indexing='ij'
             )
             base_grid = torch.stack((grid_x, grid_y), dim=-1).unsqueeze(0).repeat(B, 1, 1, 1)
-            
-            # C: normalize MVs to grid space
+
+            # Normalize pixel MVs to grid space [-1, 1]
             dx = pixel_mvs[:, 1, :, :] / ((W - 1) / 2)
             dy = pixel_mvs[:, 0, :, :] / ((H - 1) / 2)
             normalized_mvs = torch.stack((dx, dy), dim=-1)
-            
+
             shifted_grid = base_grid + normalized_mvs
-            
-            # D: hardware-accelerated image warping
-            mc_frame = F.grid_sample(self.ref_frame, shifted_grid, mode='nearest', padding_mode='border', align_corners=True)
-            
-            # E: Unfold into distinct blocks
+
+            # 4. Differentiable Bilinear Image Warping
+            mc_frame = F.grid_sample(
+                self.ref_frame, 
+                shifted_grid, 
+                mode='bilinear', 
+                padding_mode='border', 
+                align_corners=True
+            )
+
+            # 5. Vectorized Unfold into 32x32 Blocks
             self._mc_blocks = mc_frame.unfold(2, self.bs, self.bs).unfold(3, self.bs, self.bs).contiguous()
-            
+
         return self._mc_blocks
     
     @property
