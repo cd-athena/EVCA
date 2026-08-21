@@ -52,36 +52,105 @@ def print_custom_help():
     print('--profile                 ME Profile. "fast" outputs spatial TC_SAD/MVC. "full" executes the heavy DCT to output true TC_MC.')
     print('--device                  Compute device: "auto" (CUDA > MPS > CPU), "cuda", "mps", or "cpu". Default: auto')
     print('--prefetch                Overlap GOP loading with compute via a background thread. 1=on (default), 0=off.')
+    print("\nMotion estimation strategy (all defaults reproduce the Iteration-4 reference):")
+    print('--me                      Search strategy: "pattern" (sparse diamond/square, default) or "hierarchical".')
+    print('--me-subpel               Sub-pixel refinement: 0=integer (default), 1=half-pel, 2=quarter-pel.')
+    print('--me-predictor            Candidate seeding: "none" (default) or "global" (phase-correlation global MV).')
+    print('--me-lambda               MV-cost weight against the median predictor. Default 0 (off).')
+    print('--me-merge                Enable the neighbour-MV re-evaluation pass. Default off.')
+    print('--me-criterion            Block cost: "sad" (default) or "satd" (8x8 Hadamard).')
+    print("\nMotion compensation strategy:")
+    print('--mc                      "dense_smooth" (default), "dense", "block", or "obmc".')
+    print('--mc-smooth               MV-field filter for dense modes: "gauss" (default), "median", "none".')
+    print('--residual-dc             Keep the DC coefficient in the residual energy. Default off.')
+    print('--gate                    Residual gating: "intra" (default, min(SC_MC, SC)) or "none".')
+    print('--dct-impl                DCT backend: "matmul" (default, cached basis) or "torch_dct" (FFT reference).')
+    print('--preset                  Apply a named flag bundle, e.g. "iter4". Explicit flags still win.')
+
+# Named flag bundles. A preset only fills in flags the user did not pass explicitly,
+# so an explicit flag always wins over the preset that would have set it.
+PRESETS = {
+    # The Iteration-4 reference configuration: half-resolution sparse-diamond search,
+    # integer MVs, Gaussian-smoothed dense warp, intra-gated residual energy.
+    'iter4': {
+        'me': 'pattern', 'me_subpel': 0, 'me_predictor': 'none', 'me_lambda': 0.0,
+        'me_merge': False, 'me_criterion': 'sad', 'heuristic': 'diamond',
+        'mc': 'dense_smooth', 'mc_smooth': 'gauss', 'residual_dc': False,
+        'gate': 'intra',
+    },
+}
+
+
+def _add_arguments(parser: argparse.ArgumentParser, suppress: bool = False) -> None:
+    """Declares every CLI flag. With `suppress`, unspecified flags are omitted from the
+    namespace entirely, which is how preset application tells explicit flags apart."""
+    def d(value):
+        return argparse.SUPPRESS if suppress else value
+
+    parser.add_argument('-i', '--input', type=str, default=d('test.yuv'))
+    parser.add_argument('-d', '--dir', type=str, default=d(None))
+    parser.add_argument('-m', '--method', type=str, default=d('EVCA'))
+    parser.add_argument('-t', '--transform', type=str, default=d('DCT'))
+    parser.add_argument('-r', '--resolution', type=str, default=d('1920x1080'))
+    parser.add_argument('-b', '--block_size', type=int, default=d(32))
+    parser.add_argument('-f', '--frames', type=int, default=d(0))
+    parser.add_argument('-c', '--csv', type=str, default=d('./csv/test.csv'))
+    parser.add_argument('-g', '--gopsize', type=int, default=d(32))
+    parser.add_argument('-p', '--pix_fmt', type=str, default=d('yuv420'))
+    parser.add_argument('-s', '--sample_rate', type=int, default=d(1))
+    parser.add_argument('-bi', '--block_info', type=int, default=d(0))
+    parser.add_argument('-pi', '--plot_info', '-plot_info', type=int, nargs='?', const=1, default=d(0))
+    parser.add_argument('-dp', '--dpi', type=int, default=d(100))
+    parser.add_argument('-fi', '--filter', type=str, default=d('sobel'))
+    parser.add_argument('-cf', '--colorfulness', action='store_true', default=d(False))
+    parser.add_argument('-pm', '--plot_metrics', '-plot_metrics', type=int, nargs='?', const=1, default=d(0))
+    parser.add_argument('-cc', '--chroma_complexity', action='store_true', default=d(False))
+    parser.add_argument('-me', '--motion_estimation', action='store_true', default=d(False))
+    parser.add_argument('--heuristic', type=str, default=d('diamond'), choices=['diamond', 'square'])
+    parser.add_argument('--loader', type=str, default=d('standard'), choices=['standard', 'optimized'])
+    parser.add_argument('--bit_depth', type=int, default=d(8), choices=[8, 10, 12, 16])
+    parser.add_argument('--profile', type=str, default=d('fast'), choices=['fast', 'full'])
+    parser.add_argument('--device', type=str, default=d('auto'), choices=['auto', 'cuda', 'mps', 'cpu'])
+    parser.add_argument('--prefetch', type=int, default=d(1), choices=[0, 1])
+
+    # --- Motion estimation strategy (Phase 2/3) ---
+    parser.add_argument('--me', dest='me', type=str, default=d('pattern'),
+                        choices=['pattern', 'hierarchical'])
+    parser.add_argument('--me-subpel', dest='me_subpel', type=int, default=d(0), choices=[0, 1, 2])
+    parser.add_argument('--me-predictor', dest='me_predictor', type=str, default=d('none'),
+                        choices=['none', 'global'])
+    parser.add_argument('--me-lambda', dest='me_lambda', type=float, default=d(0.0))
+    parser.add_argument('--me-merge', dest='me_merge', action='store_true', default=d(False))
+    parser.add_argument('--me-criterion', dest='me_criterion', type=str, default=d('sad'),
+                        choices=['sad', 'satd'])
+
+    # --- Motion compensation strategy (Phase 2/4) ---
+    parser.add_argument('--mc', dest='mc', type=str, default=d('dense_smooth'),
+                        choices=['dense_smooth', 'dense', 'block', 'obmc'])
+    parser.add_argument('--mc-smooth', dest='mc_smooth', type=str, default=d('gauss'),
+                        choices=['gauss', 'median', 'none'])
+    parser.add_argument('--residual-dc', dest='residual_dc', action='store_true', default=d(False))
+    parser.add_argument('--gate', dest='gate', type=str, default=d('intra'), choices=['intra', 'none'])
+    parser.add_argument('--dct-impl', dest='dct_impl', type=str, default=d('matmul'),
+                        choices=['matmul', 'torch_dct'])
+    parser.add_argument('--preset', dest='preset', type=str, default=d(None), choices=sorted(PRESETS))
+
 
 def get_parser_arguments(argv=None) -> argparse.Namespace:
     """Parses CLI arguments; pass an explicit argv list (e.g. []) for programmatic use."""
     parser = argparse.ArgumentParser(add_help=False, )
-    parser.add_argument('-i', '--input', type=str, default='test.yuv')
-    parser.add_argument('-d', '--dir', type=str)
-    parser.add_argument('-m', '--method', type=str, default='EVCA')
-    parser.add_argument('-t', '--transform', type=str, default='DCT')
-    parser.add_argument('-r', '--resolution', type=str, default='1920x1080')
-    parser.add_argument('-b', '--block_size', type=int, default='32')
-    parser.add_argument('-f', '--frames', type=int, default='0')
-    parser.add_argument('-c', '--csv', type=str, default='./csv/test.csv')
-    parser.add_argument('-g', '--gopsize', type=int, default='32')
-    parser.add_argument('-p', '--pix_fmt', type=str, default='yuv420')
-    parser.add_argument('-s', '--sample_rate', type=int, default='1')
-    parser.add_argument('-bi', '--block_info', type=int, default='0')
-    parser.add_argument('-pi', '--plot_info', '-plot_info', type=int, nargs='?', const=1, default=0)
-    parser.add_argument('-dp', '--dpi', type=int, default=100)
-    parser.add_argument('-fi', '--filter', type=str, default='sobel')
-    parser.add_argument('-cf','--colorfulness', action='store_true')
-    parser.add_argument('-pm', '--plot_metrics', '-plot_metrics', type=int, nargs='?', const=1, default=0)
-    parser.add_argument('-cc', '--chroma_complexity', action='store_true')
-    parser.add_argument('-me', '--motion_estimation', action='store_true')
-    parser.add_argument('--heuristic', type=str, default='diamond', choices=['diamond', 'square'])
-    parser.add_argument('--loader', type=str, default='standard', choices=['standard', 'optimized'])
-    parser.add_argument('--bit_depth', type=int, default=8, choices=[8, 10, 12, 16])
-    parser.add_argument('--profile', type=str, default='fast', choices=['fast', 'full'])
-    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cuda', 'mps', 'cpu'])
-    parser.add_argument('--prefetch', type=int, default=1, choices=[0, 1])
-    return parser.parse_args(argv)
+    _add_arguments(parser)
+    args = parser.parse_args(argv)
+
+    if getattr(args, 'preset', None):
+        # Re-parse with suppressed defaults: only flags the user actually typed appear.
+        probe = argparse.ArgumentParser(add_help=False)
+        _add_arguments(probe, suppress=True)
+        explicit = vars(probe.parse_args(argv))
+        for dest, value in PRESETS[args.preset].items():
+            if dest not in explicit:
+                setattr(args, dest, value)
+    return args
 
 
 def main():

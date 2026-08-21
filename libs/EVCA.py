@@ -16,6 +16,40 @@ from libs.video_loader import load_gop, load_gop_optimized
 from libs.transforms import apply_luma_transform, apply_chroma_transform
 from libs.exporter import export_features_to_csv
 from libs.temporal_engine import EVCATemporalEngine, MetricMVC, MetricsTCSAD, SparsePatternBlockMatcher
+from libs.motion_compensation import build_compensator
+
+
+def build_motion_estimator(args: argparse.Namespace, width: int):
+    """Constructs the motion estimator selected by the `--me*` flags.
+
+    Options accepted by the parser but not yet implemented raise here rather than
+    silently degrading to the default search, so an ablation can never report a
+    variant it did not actually run.
+    """
+    unimplemented = []
+    if args.me_subpel != 0:
+        unimplemented.append(f'--me-subpel {args.me_subpel}')
+    if args.me_predictor != 'none':
+        unimplemented.append(f'--me-predictor {args.me_predictor}')
+    if args.me_lambda != 0.0:
+        unimplemented.append(f'--me-lambda {args.me_lambda}')
+    if args.me_merge:
+        unimplemented.append('--me-merge')
+    if args.me_criterion != 'sad':
+        unimplemented.append(f'--me-criterion {args.me_criterion}')
+    if args.me == 'hierarchical':
+        unimplemented.append('--me hierarchical')
+    if unimplemented:
+        raise NotImplementedError(
+            'not implemented yet (Phase 3): ' + ', '.join(unimplemented))
+
+    dilation_factor = max(1, width // 1920)  # 1080p has multiplier of 1
+    return SparsePatternBlockMatcher(
+        block_size=args.block_size,
+        heuristic=args.heuristic,
+        dilation=dilation_factor,
+    )
+
 
 def EVCA(args: argparse.Namespace, input_list, device) -> None:
     width = int(args.resolution.split('x')[0])
@@ -31,6 +65,11 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
     # Pre-compute the DCT weight tensor (32x32)
     cached_weights_dct = weight_dct(args, device)
+    # The residual transform may keep the DC coefficient (--residual-dc): for a
+    # motion-compensated residual, DC is the block's mean prediction error and costs
+    # real rate, unlike an intra block's DC which is just average brightness.
+    residual_weights_dct = (weight_dct(args, device, keep_dc=True)
+                            if getattr(args, 'residual_dc', False) else cached_weights_dct)
 
     for file in input_list:
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
@@ -66,17 +105,13 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_intrafrac = []
         
         if args.motion_estimation:
-            dilation_factor = max(1, width // 1920) # 1080p has multiplier of 1
-            me_module = SparsePatternBlockMatcher(
-                block_size=args.block_size,
-                heuristic=args.heuristic,
-                dilation=dilation_factor
-            ).to(device)
+            me_module = build_motion_estimator(args, width).to(device)
             metrics = {
                 'mvc': MetricMVC().to(device),
                 'tc_sad': MetricsTCSAD().to(device)
             }
-            temporal_engine = EVCATemporalEngine(me_module, metrics).to(device)
+            compensator = build_compensator(args.mc, args.mc_smooth).to(device)
+            temporal_engine = EVCATemporalEngine(me_module, metrics, compensator).to(device)
             # if hasattr(torch, "compile"):
             #     temporal_engine = torch.compile(temporal_engine, mode="reduce-overhead")
         last_Y_frame = None
@@ -174,14 +209,16 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         residual_flat = residual_tensor.view(-1, args.block_size, args.block_size)
                         DTs_mc = apply_luma_transform(args, residual_flat, dwt_model=dwt)
                         # extract high-frequency weighted energy (mimicks EVCA)
-                        _, SC_blocks_mc, _ = feature_extraction(args, DTs_mc, current_frames.shape[0], device, cached_weights_dct)
-                        
+                        _, SC_blocks_mc, _ = feature_extraction(args, DTs_mc, current_frames.shape[0], device, residual_weights_dct)
+
                         # intra-mode energy gating
                         curr_SC_blocks = SC_blocks[1:] if f == 0 else SC_blocks
                         # Diagnostic: fraction of blocks where the intra gate fires
-                        # (residual energy >= plain SC before the min).
+                        # (residual energy >= plain SC before the min). Reported even
+                        # with --gate none, where it measures how often MC lost to intra.
                         intrafrac_batch = (SC_blocks_mc >= curr_SC_blocks).float().mean(dim=1).ravel()
-                        SC_blocks_mc = torch.minimum(SC_blocks_mc, curr_SC_blocks)
+                        if args.gate == 'intra':
+                            SC_blocks_mc = torch.minimum(SC_blocks_mc, curr_SC_blocks)
                         
                         if need_block_info:
                             out_blocks_tcmc.append(SC_blocks_mc.detach())
