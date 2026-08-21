@@ -1,0 +1,39 @@
+{
+  "_comment": "Test sequence configuration for the EVCA2 validation harness. Paths are resolved relative to 'sequence_root' unless absolute. Override the root with the EVCA_SEQUENCE_ROOT environment variable or --sequence-root.",
+  "sequence_root": "/home/albert/Desktop/test_sequences",
+  "qps": [22, 27, 32, 37],
+  "sequences": [
+    {
+      "name": "YachtRide",
+      "path": "YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080",
+      "fps": 120,
+      "pix_fmt": "yuv420",
+      "bit_depth": 8
+    },
+    {
+      "name": "ReadySteadyGo",
+      "path": "ReadySteadyGo_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080",
+      "fps": 120,
+      "pix_fmt": "yuv420",
+      "bit_depth": 8
+    },
+    {
+      "name": "HoneyBee",
+      "path": "HoneyBee_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080",
+      "fps": 120,
+      "pix_fmt": "yuv420",
+      "bit_depth": 8
+    },
+    {
+      "name": "Bosphorus",
+      "path": "Bosphorus_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080",
+      "fps": 120,
+      "pix_fmt": "yuv420",
+      "bit_depth": 8
+    }
+  ]
+}

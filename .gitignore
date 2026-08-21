@@ -6,3 +6,7 @@ png/*
 .idea/*
 tests/__pycache__
 validation/benchmark_results
+__pycache__/
+validation/results/
+validation/gt_cache/
+validation/synthetic_data/
