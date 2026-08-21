@@ -29,15 +29,14 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
     else:
         raise ValueError(f"Unsupported pixel format '{args.pix_fmt}'. Supported formats are 'yuv420' and 'yuv444'.")
 
-    steps = args.gopsize
-    
     # Pre-compute the DCT weight tensor (32x32)
     cached_weights_dct = weight_dct(args, device)
 
     for file in input_list:
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
         nframes = args.frames if args.frames != 0 else number_of_frames
-        steps = steps if steps <= nframes else nframes
+        # Reset per file: a short file must not shrink the GOP size for later files.
+        steps = min(args.gopsize, nframes)
         args.input = file
         stream = open(args.input, 'rb')
 
