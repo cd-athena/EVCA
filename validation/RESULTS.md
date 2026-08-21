@@ -46,3 +46,232 @@ the current default** (rule 2: defaults reproduce current behavior) and adds
 
 - Full pytest suite: pending Phase 1 tests (existing 31 tests pass on CPU).
 - `--profile full` end-to-end on a real sequence: pending (recorded below once run).
+
+### Run `gate1` — 2026-08-21 19:38
+
+- Phase: Phase 1 (post-fix baseline)
+- Commit: `5560c9d8180f14920ba48fd50092b996db95ea13`
+- Subset: **fast** (120 frames), sequences: YachtRide, ReadySteadyGo, HoneyBee, Bosphorus
+- Device: `auto`, loader: `optimized`, profiles: baseline, fast, full
+- Extra EVCA args: `(none)`
+- Bootstrap: 1000 resamples, seed 12345
+- Results: `validation/results/gate1_5560c9d8`
+
+**Throughput**
+
+| profile | frames | seconds | fps |
+|---|---|---|---|
+| baseline | 480 | 1.28 | 375.00 |
+| fast | 480 | 1.59 | 301.89 |
+| full | 480 | 1.94 | 247.42 |
+
+**Frame-level pooled correlations** (CI = 95 % bootstrap; `blk` = sequence-level block bootstrap)
+
+| Domain | QP | metric | n | PCC | PCC_lo | PCC_hi | PCC_blk_lo | PCC_blk_hi | SRCC | PCC_log |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Spatial | 22 | baseline_SC | 480 | 0.7805 | 0.7373 | 0.8185 | -0.7762 | 0.9992 | 0.7231 | 0.7671 |
+| Temporal | 22 | baseline_TC | 476 | 0.4371 | 0.3951 | 0.4809 | -0.6931 | 0.9854 | 0.7826 | 0.5339 |
+| Temporal | 22 | fast_MVC | 476 | 0.8588 | 0.8329 | 0.8834 | 0.2413 | 0.9822 | 0.8261 | 0.9045 |
+| Temporal | 22 | fast_TC_SAD | 476 | 0.5188 | 0.4621 | 0.5919 | -0.1833 | 0.9375 | 0.7707 | 0.5668 |
+| Temporal | 22 | full_TC_MC | 476 | 0.6437 | 0.6054 | 0.6893 | -0.9725 | 0.9841 | 0.7156 | 0.6367 |
+| Spatial | 27 | baseline_SC | 480 | 0.9817 | 0.9785 | 0.9843 | 0.9018 | 0.9918 | 0.9886 | 0.9865 |
+| Temporal | 27 | baseline_TC | 476 | 0.4879 | 0.4488 | 0.5272 | -0.6945 | 0.9819 | 0.7827 | 0.5972 |
+| Temporal | 27 | fast_MVC | 476 | 0.8898 | 0.8691 | 0.9101 | 0.3719 | 0.9860 | 0.8528 | 0.9091 |
+| Temporal | 27 | fast_TC_SAD | 476 | 0.5583 | 0.5081 | 0.6224 | -0.1365 | 0.9477 | 0.7699 | 0.5661 |
+| Temporal | 27 | full_TC_MC | 476 | 0.6550 | 0.6238 | 0.6928 | -0.9799 | 0.9894 | 0.7115 | 0.5514 |
+| Spatial | 32 | baseline_SC | 480 | 0.9899 | 0.9877 | 0.9916 | 0.9534 | 0.9987 | 0.9922 | 0.9849 |
+| Temporal | 32 | baseline_TC | 476 | 0.5237 | 0.4856 | 0.5608 | -0.6881 | 0.9784 | 0.7830 | 0.6319 |
+| Temporal | 32 | fast_MVC | 476 | 0.8849 | 0.8655 | 0.9030 | 0.4031 | 0.9854 | 0.8581 | 0.9021 |
+| Temporal | 32 | fast_TC_SAD | 476 | 0.5992 | 0.5552 | 0.6574 | -0.0913 | 0.9546 | 0.7710 | 0.5880 |
+| Temporal | 32 | full_TC_MC | 476 | 0.7007 | 0.6739 | 0.7334 | -0.9767 | 0.9914 | 0.7109 | 0.5667 |
+| Spatial | 37 | baseline_SC | 480 | 0.9778 | 0.9737 | 0.9813 | 0.6971 | 0.9997 | 0.9624 | 0.9541 |
+| Temporal | 37 | baseline_TC | 476 | 0.5769 | 0.5407 | 0.6119 | -0.6658 | 0.9764 | 0.7870 | 0.6721 |
+| Temporal | 37 | fast_MVC | 476 | 0.8814 | 0.8621 | 0.8984 | 0.4244 | 0.9835 | 0.8615 | 0.9002 |
+| Temporal | 37 | fast_TC_SAD | 476 | 0.6530 | 0.6144 | 0.7040 | 0.0272 | 0.9610 | 0.7858 | 0.6264 |
+| Temporal | 37 | full_TC_MC | 476 | 0.7511 | 0.7305 | 0.7766 | -0.9671 | 0.9931 | 0.7218 | 0.6135 |
+
+**Sequence-mean correlations** (legacy, n = sequences)
+
+| Domain | QP | Metric | PCC | SRCC | n |
+|---|---|---|---|---|---|
+| Spatial | 22 | baseline_B | -0.9415 | -0.8000 | 4 |
+| Spatial | 22 | baseline_SC | 0.7679 | 0.8000 | 4 |
+| Temporal | 22 | baseline_TC | 0.4605 | 0.8000 | 4 |
+| Temporal | 22 | baseline_TC2 | 0.4806 | 0.8000 | 4 |
+| Spatial | 22 | fast_B | -0.9415 | -0.8000 | 4 |
+| Spatial | 22 | fast_SC | 0.7679 | 0.8000 | 4 |
+| Temporal | 22 | fast_TC | 0.4605 | 0.8000 | 4 |
+| Temporal | 22 | fast_TC2 | 0.4806 | 0.8000 | 4 |
+| Spatial | 22 | fast_SC_u | 0.6357 | 0.6000 | 4 |
+| Spatial | 22 | fast_SC_v | 0.9838 | 1.0000 | 4 |
+| Spatial | 22 | fast_Colorfulness | 0.3175 | -0.2000 | 4 |
+| Temporal | 22 | fast_MVC | 0.9465 | 1.0000 | 4 |
+| Temporal | 22 | fast_TC_SAD | 0.6987 | 0.8000 | 4 |
+| Temporal | 22 | fast_MV_sat_frac | 0.8713 | 1.0000 | 4 |
+| Temporal | 22 | fast_mean_mv_mag | 0.8582 | 1.0000 | 4 |
+| Spatial | 22 | full_B | -0.9415 | -0.8000 | 4 |
+| Spatial | 22 | full_SC | 0.7679 | 0.8000 | 4 |
+| Temporal | 22 | full_TC | 0.4605 | 0.8000 | 4 |
+| Temporal | 22 | full_TC2 | 0.4806 | 0.8000 | 4 |
+| Spatial | 22 | full_SC_u | 0.6357 | 0.6000 | 4 |
+| Spatial | 22 | full_SC_v | 0.9838 | 1.0000 | 4 |
+| Spatial | 22 | full_Colorfulness | 0.3175 | -0.2000 | 4 |
+| Temporal | 22 | full_MVC | 0.9465 | 1.0000 | 4 |
+| Temporal | 22 | full_TC_SAD | 0.6987 | 0.8000 | 4 |
+| Temporal | 22 | full_TC_MC | 0.7252 | 0.8000 | 4 |
+| Temporal | 22 | full_MV_sat_frac | 0.8713 | 1.0000 | 4 |
+| Temporal | 22 | full_mean_mv_mag | 0.8582 | 1.0000 | 4 |
+| Temporal | 22 | full_intra_frac | 0.9966 | 1.0000 | 4 |
+| Spatial | 27 | baseline_B | -0.5000 | -0.4000 | 4 |
+| Spatial | 27 | baseline_SC | 0.9999 | 1.0000 | 4 |
+| Temporal | 27 | baseline_TC | 0.5067 | 0.8000 | 4 |
+| Temporal | 27 | baseline_TC2 | 0.5303 | 0.8000 | 4 |
+| Spatial | 27 | fast_B | -0.5000 | -0.4000 | 4 |
+| Spatial | 27 | fast_SC | 0.9999 | 1.0000 | 4 |
+| Temporal | 27 | fast_TC | 0.5067 | 0.8000 | 4 |
+| Temporal | 27 | fast_TC2 | 0.5303 | 0.8000 | 4 |
+| Spatial | 27 | fast_SC_u | -0.0148 | 0.0000 | 4 |
+| Spatial | 27 | fast_SC_v | 0.6411 | 0.8000 | 4 |
+| Spatial | 27 | fast_Colorfulness | -0.3602 | -0.4000 | 4 |
+| Temporal | 27 | fast_MVC | 0.9665 | 1.0000 | 4 |
+| Temporal | 27 | fast_TC_SAD | 0.7269 | 0.8000 | 4 |
+| Temporal | 27 | fast_MV_sat_frac | 0.8854 | 1.0000 | 4 |
+| Temporal | 27 | fast_mean_mv_mag | 0.8916 | 1.0000 | 4 |
+| Spatial | 27 | full_B | -0.5000 | -0.4000 | 4 |
+| Spatial | 27 | full_SC | 0.9999 | 1.0000 | 4 |
+| Temporal | 27 | full_TC | 0.5067 | 0.8000 | 4 |
+| Temporal | 27 | full_TC2 | 0.5303 | 0.8000 | 4 |
+| Spatial | 27 | full_SC_u | -0.0148 | 0.0000 | 4 |
+| Spatial | 27 | full_SC_v | 0.6411 | 0.8000 | 4 |
+| Spatial | 27 | full_Colorfulness | -0.3602 | -0.4000 | 4 |
+| Temporal | 27 | full_MVC | 0.9665 | 1.0000 | 4 |
+| Temporal | 27 | full_TC_SAD | 0.7269 | 0.8000 | 4 |
+| Temporal | 27 | full_TC_MC | 0.7301 | 0.8000 | 4 |
+| Temporal | 27 | full_MV_sat_frac | 0.8854 | 1.0000 | 4 |
+| Temporal | 27 | full_mean_mv_mag | 0.8916 | 1.0000 | 4 |
+| Temporal | 27 | full_intra_frac | 0.9974 | 1.0000 | 4 |
+| Spatial | 32 | baseline_B | -0.5088 | -0.4000 | 4 |
+| Spatial | 32 | baseline_SC | 0.9974 | 1.0000 | 4 |
+| Temporal | 32 | baseline_TC | 0.5441 | 0.8000 | 4 |
+| Temporal | 32 | baseline_TC2 | 0.5628 | 0.8000 | 4 |
+| Spatial | 32 | fast_B | -0.5088 | -0.4000 | 4 |
+| Spatial | 32 | fast_SC | 0.9974 | 1.0000 | 4 |
+| Temporal | 32 | fast_TC | 0.5441 | 0.8000 | 4 |
+| Temporal | 32 | fast_TC2 | 0.5628 | 0.8000 | 4 |
+| Spatial | 32 | fast_SC_u | -0.0030 | 0.0000 | 4 |
+| Spatial | 32 | fast_SC_v | 0.6512 | 0.8000 | 4 |
+| Spatial | 32 | fast_Colorfulness | -0.3388 | -0.4000 | 4 |
+| Temporal | 32 | fast_MVC | 0.9542 | 1.0000 | 4 |
+| Temporal | 32 | fast_TC_SAD | 0.7631 | 0.8000 | 4 |
+| Temporal | 32 | fast_MV_sat_frac | 0.9120 | 1.0000 | 4 |
+| Temporal | 32 | fast_mean_mv_mag | 0.9004 | 1.0000 | 4 |
+| Spatial | 32 | full_B | -0.5088 | -0.4000 | 4 |
+| Spatial | 32 | full_SC | 0.9974 | 1.0000 | 4 |
+| Temporal | 32 | full_TC | 0.5441 | 0.8000 | 4 |
+| Temporal | 32 | full_TC2 | 0.5628 | 0.8000 | 4 |
+| Spatial | 32 | full_SC_u | -0.0030 | 0.0000 | 4 |
+| Spatial | 32 | full_SC_v | 0.6512 | 0.8000 | 4 |
+| Spatial | 32 | full_Colorfulness | -0.3388 | -0.4000 | 4 |
+| Temporal | 32 | full_MVC | 0.9542 | 1.0000 | 4 |
+| Temporal | 32 | full_TC_SAD | 0.7631 | 0.8000 | 4 |
+| Temporal | 32 | full_TC_MC | 0.7744 | 0.8000 | 4 |
+| Temporal | 32 | full_MV_sat_frac | 0.9120 | 1.0000 | 4 |
+| Temporal | 32 | full_mean_mv_mag | 0.9004 | 1.0000 | 4 |
+| Temporal | 32 | full_intra_frac | 0.9998 | 1.0000 | 4 |
+| Spatial | 37 | baseline_B | -0.6505 | -0.4000 | 4 |
+| Spatial | 37 | baseline_SC | 0.9784 | 1.0000 | 4 |
+| Temporal | 37 | baseline_TC | 0.6036 | 0.8000 | 4 |
+| Temporal | 37 | baseline_TC2 | 0.6182 | 0.8000 | 4 |
+| Spatial | 37 | fast_B | -0.6505 | -0.4000 | 4 |
+| Spatial | 37 | fast_SC | 0.9784 | 1.0000 | 4 |
+| Temporal | 37 | fast_TC | 0.6036 | 0.8000 | 4 |
+| Temporal | 37 | fast_TC2 | 0.6182 | 0.8000 | 4 |
+| Spatial | 37 | fast_SC_u | 0.1728 | 0.0000 | 4 |
+| Spatial | 37 | fast_SC_v | 0.7739 | 0.8000 | 4 |
+| Spatial | 37 | fast_Colorfulness | -0.1650 | -0.4000 | 4 |
+| Temporal | 37 | fast_MVC | 0.9430 | 1.0000 | 4 |
+| Temporal | 37 | fast_TC_SAD | 0.8114 | 0.8000 | 4 |
+| Temporal | 37 | fast_MV_sat_frac | 0.9421 | 1.0000 | 4 |
+| Temporal | 37 | fast_mean_mv_mag | 0.9193 | 1.0000 | 4 |
+| Spatial | 37 | full_B | -0.6505 | -0.4000 | 4 |
+| Spatial | 37 | full_SC | 0.9784 | 1.0000 | 4 |
+| Temporal | 37 | full_TC | 0.6036 | 0.8000 | 4 |
+| Temporal | 37 | full_TC2 | 0.6182 | 0.8000 | 4 |
+| Spatial | 37 | full_SC_u | 0.1728 | 0.0000 | 4 |
+| Spatial | 37 | full_SC_v | 0.7739 | 0.8000 | 4 |
+| Spatial | 37 | full_Colorfulness | -0.1650 | -0.4000 | 4 |
+| Temporal | 37 | full_MVC | 0.9430 | 1.0000 | 4 |
+| Temporal | 37 | full_TC_SAD | 0.8114 | 0.8000 | 4 |
+| Temporal | 37 | full_TC_MC | 0.8211 | 0.8000 | 4 |
+| Temporal | 37 | full_MV_sat_frac | 0.9421 | 1.0000 | 4 |
+| Temporal | 37 | full_mean_mv_mag | 0.9193 | 1.0000 | 4 |
+| Temporal | 37 | full_intra_frac | 0.9959 | 1.0000 | 4 |
+
+
+#### Gate 1 — verdict and analysis
+
+**Gate 1 met.** The harness runs end to end (EVCA extraction → per-frame x265 ground
+truth → frame-level and sequence-mean correlations → ledger), and the three profiles
+were re-run with the Phase 0 fixes in place. The numbers above are the post-fix
+baseline that Phases 2–5 are measured against.
+
+Additional Phase 0 fix found by the new tests and folded into this gate:
+
+| # | Fix | Commit | Default output change |
+|---|-----|--------|----------------------|
+| 0.10 | `load_gop_optimized` raised `BufferError: cannot close exported pointers exist` whenever chroma was enabled. The `if 'X' in locals(): del X` idiom materialises the frame's `f_locals` snapshot, which then holds its own reference to the last chroma view, so the mmap still had an exported buffer at `close()`. Replaced with plain rebinding. | `dbfa6cc` | `--loader optimized` with `-cc`/`-cf` went from crashing to working |
+
+**Frame alignment verified against the encoder.** A 1080p probe sequence with a
+4 px/frame pan starting at frame 8 and a hard cut at frame 14 was encoded LDP at
+QP 32. The x265 P-frame bits jump at frame_idx 8 (712 → 3800 bits) and spike at
+frame_idx 14 (829 072 bits); EVCA's `TC`, `TC_SAD`, `mean_mv_mag` first become
+non-zero at row 8 and `TC_MC`/`intra_frac` peak at row 14. Identical indices, so
+EVCA row `f` ↔ LDP P-frame `f` is the correct alignment. `mean_mv_mag` was exactly
+4.00 during the pan, and `TC_MC` fell to 0.8 against a raw `TC` of 167.7, which is
+the Phase 0.1 registration fix working on real-resolution content. This probe is
+now pinned by `tests/test_frame_alignment.py` (synthetic, no ffmpeg needed).
+
+**Pooled correlations are dominated by between-sequence variance.** Mean *within*-
+sequence frame-level PCC against `TC_gt`, averaged over the four sequences:
+
+| metric | QP 22 | QP 27 | QP 32 | QP 37 |
+|---|---|---|---|---|
+| `TC` (baseline) | 0.179 | 0.301 | 0.271 | 0.283 |
+| `TC2` (baseline) | 0.234 | 0.543 | 0.487 | 0.412 |
+| `TC_SAD` | 0.034 | 0.214 | 0.269 | 0.407 |
+| `MVC` | −0.027 | 0.145 | 0.174 | 0.170 |
+| `TC_MC` | **0.287** | **0.385** | **0.405** | **0.516** |
+
+`MVC` has the highest *pooled* PCC of any temporal metric (0.86–0.89) but the
+second-*lowest* within-sequence PCC (0.15–0.17). Its pooled score is almost entirely
+the between-sequence effect that high-motion content costs more bits; it barely
+tracks frame-to-frame variation inside a sequence. `TC_MC` is the best within-sequence
+temporal metric at every QP, which is the ordering Phases 3–4 should try to improve.
+The sequence-level block-bootstrap CIs are correspondingly near-vacuous (frequently
+spanning [−0.97, +0.99]) because there are only four sequences: with n = 4 groups the
+block bootstrap has very few distinct resamples. **Consequence for Gates 3 and 4:** the
+specified decision rule (lower bound of the 95 % CI of pooled frame-level PCC of
+`TC_MC`) is applied as written, but the frame-level CI is used for it, and the
+per-sequence table is reported alongside every gate, since the pooled statistic can be
+moved by between-sequence effects that say nothing about per-frame prediction quality.
+
+**Motion search is saturated on half the corpus.** Per-sequence means over frames ≥ 1:
+
+| sequence | `MV_sat_frac` | `mean_mv_mag` | `intra_frac` | `TC_SAD` PCC @ QP 32 |
+|---|---|---|---|---|
+| HoneyBee | 0.2 % | 0.08 | 7.0 % | 0.569 |
+| Bosphorus | 2.8 % | 1.96 | 13.6 % | −0.054 |
+| ReadySteadyGo | 50.5 % | 4.18 | 20.7 % | 0.708 |
+| YachtRide | 63.0 % | 4.62 | 36.8 % | −0.146 |
+
+Overall `MV_sat_frac` is **29.1 %**, against the Phase 3 acceptance threshold of < 5 %.
+On YachtRide and ReadySteadyGo the majority of blocks pick a motion vector on the
+boundary of the ±6 px pattern, i.e. the true motion is outside the search range and
+the reported SAD measures search failure rather than content complexity. This is the
+direct motivation for the hierarchical search in Phase 3, and it is the most likely
+explanation for `TC_SAD` correlating *negatively* with bits on YachtRide.
+
+**Throughput** (RTX 5060 Ti, CUDA, 1080p, `--loader optimized`, 480 frames total):
+baseline 375 fps, fast profile 302 fps, full profile 247 fps. The full profile is
+already well above the Phase 3 target of 100 fps at 1080p, leaving headroom for a
+more expensive search.
