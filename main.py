@@ -50,6 +50,8 @@ def print_custom_help():
     print('--loader                  Select the I/O pipeline: "standard" (sequential reads, low memory) or "optimized" (memory-mapped, high throughput but may cause OOM error).')
     print('--bit_depth               Bit depth of the raw YUV video. Default: 8')
     print('--profile                 ME Profile. "fast" outputs spatial TC_SAD/MVC. "full" executes the heavy DCT to output true TC_MC.')
+    print('--device                  Compute device: "auto" (CUDA > MPS > CPU), "cuda", "mps", or "cpu". Default: auto')
+    print('--prefetch                Overlap GOP loading with compute via a background thread. 1=on (default), 0=off.')
 
 def get_parser_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=False, )
@@ -76,6 +78,8 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('--loader', type=str, default='standard', choices=['standard', 'optimized'])
     parser.add_argument('--bit_depth', type=int, default=8, choices=[8, 10, 12, 16])
     parser.add_argument('--profile', type=str, default='fast', choices=['fast', 'full'])
+    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cuda', 'mps', 'cpu'])
+    parser.add_argument('--prefetch', type=int, default=1, choices=[0, 1])
     return parser.parse_args()
 
 
@@ -96,7 +100,16 @@ def main():
         input_list, success = check_existence(args)
         if success:
             print("Start to extract features...")
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            if args.device == 'auto':
+                if torch.cuda.is_available():
+                    device = torch.device('cuda')
+                elif torch.backends.mps.is_available():
+                    device = torch.device('mps')
+                else:
+                    device = torch.device('cpu')
+            else:
+                device = torch.device(args.device)
+            print(f"Using device: {device.type}")
             t1 = time.time()
             if args.method == 'EVCA':
                 EVCA(args, input_list, device)

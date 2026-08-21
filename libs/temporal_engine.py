@@ -59,14 +59,17 @@ class TemporalState:
             dy = pixel_mvs[:, 0, :, :] / ((H - 1) / 2)
             normalized_mvs = torch.stack((dx, dy), dim=-1)
 
-            shifted_grid = base_grid + normalized_mvs
+            # Clamp to [-1, 1]: with align_corners=True this is exactly equivalent to
+            # padding_mode='border' (same pixel-coordinate clamp), but works on MPS,
+            # where grid_sample's border mode is not implemented.
+            shifted_grid = (base_grid + normalized_mvs).clamp_(-1.0, 1.0)
 
             # 4. Differentiable Bilinear Image Warping
             mc_frame = F.grid_sample(
-                self.ref_frame, 
-                shifted_grid, 
-                mode='bilinear', 
-                padding_mode='border', 
+                self.ref_frame,
+                shifted_grid,
+                mode='bilinear',
+                padding_mode='zeros',
                 align_corners=True
             )
 

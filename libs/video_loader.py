@@ -30,7 +30,11 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
     
     frames = np.arange(start_frame, end_frame, args.sample_rate)
     np_dtype = np.uint8 if args.bit_depth == 8 else np.uint16
-    
+
+    # Async H2D copies are only safe on CUDA: on MPS, non_blocking=True can read
+    # the intermediate CPU tensor after it has been freed, corrupting the frames.
+    non_blocking = (device.type == 'cuda')
+
     for frame in frames:
         # Seek to frame start
         y_offset = int(frame * width * height * pix_size)
@@ -42,7 +46,7 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
         # PyTorch lacks uint16 support. Cast to int16 before loading to tensor.
         Y_t = torch.from_numpy(
             Y[:height // args.block_size * args.block_size, :width // args.block_size * args.block_size].astype(np.int16)
-        ).to(device, non_blocking=True).float()
+        ).to(device, non_blocking=non_blocking).float()
         
         Y_frames_list.append(Y_t.unsqueeze(0).unsqueeze(0)) # store full frame before slicing, adding [Batch, Channel] dims
         
@@ -66,10 +70,10 @@ def load_gop(args: argparse.Namespace, stream, start_frame: int, end_frame: int,
                 
                 U_t = torch.from_numpy(
                     U[:uv_h // cb_size * cb_size, :uv_w // cb_size * cb_size].astype(np.int16)
-                ).to(device, non_blocking=True).float()
+                ).to(device, non_blocking=non_blocking).float()
                 V_t = torch.from_numpy(
                     V[:uv_h // cb_size * cb_size, :uv_w // cb_size * cb_size].astype(np.int16)
-                ).to(device, non_blocking=True).float()
+                ).to(device, non_blocking=non_blocking).float()
                 
                 u_b = U_t.unfold(0, cb_size, cb_size).unfold(1, cb_size, cb_size).contiguous().view(-1, cb_size, cb_size)
                 v_b = V_t.unfold(0, cb_size, cb_size).unfold(1, cb_size, cb_size).contiguous().view(-1, cb_size, cb_size)
@@ -167,7 +171,7 @@ def load_gop_optimized(args: argparse.Namespace, stream, start_frame: int, end_f
         if 'V_view' in locals(): del V_view
             
         # 4. Asynchronous DMA transfer to GPU
-        Y_gpu = Y_batch_cpu.to(device, non_blocking=True, dtype=torch.float32)
+        Y_gpu = Y_batch_cpu.to(device, non_blocking=is_cuda, dtype=torch.float32)
         
         # 5. Global tensor manipulation
         # Crop to block-size boundaries to guarantee strict interface parity with standard loader
@@ -184,8 +188,8 @@ def load_gop_optimized(args: argparse.Namespace, stream, start_frame: int, end_f
         
         U_blocks, V_blocks = None, None
         if args.chroma_complexity:
-            U_gpu = U_batch_cpu.to(device, non_blocking=True, dtype=torch.float32)
-            V_gpu = V_batch_cpu.to(device, non_blocking=True, dtype=torch.float32)
+            U_gpu = U_batch_cpu.to(device, non_blocking=is_cuda, dtype=torch.float32)
+            V_gpu = V_batch_cpu.to(device, non_blocking=is_cuda, dtype=torch.float32)
             
             crop_uv_h = (uv_h // cb_size) * cb_size
             crop_uv_w = (uv_w // cb_size) * cb_size

@@ -1,5 +1,6 @@
 import argparse
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -94,15 +95,33 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         if args.chroma_complexity:
             chroma_weights = weight_dct(args, device, size=cb_size)
 
-        for f in range(0, nframes, steps):
-            actual_num_frames = len(range(f, min(nframes, f + steps), args.sample_rate))
-            
-            # Load Data
-            loader_function = load_gop_optimized if args.loader == 'optimized' else load_gop
-            Y_blocks, U_blocks, V_blocks, colorfulness_batch, Y_frames = loader_function(
-                args, stream, f, min(nframes, f + steps), device, 
+        loader_function = load_gop_optimized if args.loader == 'optimized' else load_gop
+
+        def load_gop_range(start, end):
+            return loader_function(
+                args, stream, start, end, device,
                 width, height, pix_size, luma_size, chroma_size, uv_w, uv_h, cb_size
             )
+
+        gop_bounds = [(f, min(nframes, f + steps)) for f in range(0, nframes, steps)]
+
+        # Double-buffered GOP prefetch: a single worker thread loads GOP N+1
+        # (disk I/O + host-side decode) while the main thread computes GOP N.
+        # With prefetching on, only the worker touches `stream`, so file access
+        # stays strictly serial; loads are chained one submission ahead.
+        prefetcher = ThreadPoolExecutor(max_workers=1) if getattr(args, 'prefetch', 1) else None
+        pending = prefetcher.submit(load_gop_range, *gop_bounds[0]) if (prefetcher and gop_bounds) else None
+
+        for gop_idx, (f, f_end) in enumerate(gop_bounds):
+            actual_num_frames = len(range(f, f_end, args.sample_rate))
+
+            # Load Data
+            if prefetcher is not None:
+                Y_blocks, U_blocks, V_blocks, colorfulness_batch, Y_frames = pending.result()
+                if gop_idx + 1 < len(gop_bounds):
+                    pending = prefetcher.submit(load_gop_range, *gop_bounds[gop_idx + 1])
+            else:
+                Y_blocks, U_blocks, V_blocks, colorfulness_batch, Y_frames = load_gop_range(f, f_end)
             
             # Luma Processing
             DTs = apply_luma_transform(args, Y_blocks, dwt_model=dwt)
@@ -125,8 +144,9 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                     ref_frames = me_input_frames[:-1]
                     # batched ME and metrics
                     me_results, me_state = temporal_engine(current_frames, ref_frames)
-                    mvc_batch = me_results['mvc'].cpu().numpy().ravel()
-                    tcsad_batch = me_results['tc_sad'].cpu().numpy().ravel()
+                    # Keep results on-device; a single host sync happens after the GOP loop.
+                    mvc_batch = me_results['mvc'].ravel()
+                    tcsad_batch = me_results['tc_sad'].ravel()
                     
                     if need_block_info:
                         sad_map_flat = me_state.sad_map.squeeze(1).reshape(current_frames.shape[0], -1)
@@ -136,7 +156,6 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         out_blocks_mv.append(mv_flat.detach())
                     
                     tcmc_batch = None
-                    tc_uncomp_batch = None
                     if args.profile == 'full':
                         # evaluate motion-compensated Residual (TC_MC)
                         # extract spatial residual dynamically
@@ -156,20 +175,19 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                             out_blocks_tcmc.append(SC_blocks_mc.detach())
                         # collapse block energies into frame-level TC_MC score
                         num_blocks = (width // args.block_size) * (height // args.block_size)
-                        tcmc_frame = SC_blocks_mc.sum(dim=1) / num_blocks
-                        tcmc_batch = tcmc_frame.cpu().numpy().ravel()
-                        
+                        tcmc_batch = (SC_blocks_mc.sum(dim=1) / num_blocks).ravel()
+
                     if f == 0:
                         # pad first frame with 0 (since it has no reference)
-                        out_mvc.extend([0.0] + list(mvc_batch))
-                        out_tcsad.extend([0.0] + list(tcsad_batch))
+                        zero = torch.zeros(1, device=mvc_batch.device, dtype=mvc_batch.dtype)
+                        mvc_batch = torch.cat([zero, mvc_batch])
+                        tcsad_batch = torch.cat([zero, tcsad_batch])
                         if tcmc_batch is not None:
-                            out_tcmc.extend([0.0] + list(tcmc_batch))
-                    else:
-                        out_mvc.extend(list(mvc_batch))
-                        out_tcsad.extend(list(tcsad_batch))
-                        if tcmc_batch is not None:
-                            out_tcmc.extend(list(tcmc_batch))
+                            tcmc_batch = torch.cat([zero, tcmc_batch])
+                    out_mvc.append(mvc_batch)
+                    out_tcsad.append(tcsad_batch)
+                    if tcmc_batch is not None:
+                        out_tcmc.append(tcmc_batch)
                 last_Y_frame = Y_frames[-1:]
                 
             # Chroma Processing
@@ -181,38 +199,32 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                 block_count = (width // args.block_size) * (height // args.block_size)
                 SC_u_frame = SC_u_blocks.sum(dim=[1]) / block_count
                 SC_v_frame = SC_v_blocks.sum(dim=[1]) / block_count
-                
-                SC_u_frame = SC_u_frame.cpu().numpy().ravel()
-                SC_v_frame = SC_v_frame.cpu().numpy().ravel()
-                
-                out_frames_u.extend(SC_u_frame)
-                out_frames_v.extend(SC_v_frame)
+
+                out_frames_u.append(SC_u_frame)
+                out_frames_v.append(SC_v_frame)
                 out_blocks_u.extend(SC_u_blocks)
                 out_blocks_v.extend(SC_v_blocks)
             
 
 
-            # Aggregation
+            # Aggregation (kept on-device; a single host sync happens after the loop)
+            blocks_per_frame = (width // args.block_size) * (height // args.block_size)
             B_frame = B_blocks.mean(dim=1)
-            SC_frame = SC_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
-            TC_frame = TC_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
-            TC2_frame = TC2_blocks.sum(dim=[1]) / ((width // args.block_size) * (height // args.block_size))
+            SC_frame = SC_blocks.sum(dim=[1]) / blocks_per_frame
+            TC_frame = TC_blocks.sum(dim=[1]) / blocks_per_frame
+            TC2_frame = TC2_blocks.sum(dim=[1]) / blocks_per_frame
 
-            B_frame = B_frame.cpu().numpy().ravel()
-            SC_frame = SC_frame.cpu().numpy().ravel()
-            TC_frame = TC_frame.cpu().numpy().ravel()
-            TC2_frame = TC2_frame.cpu().numpy().ravel()
-            
             if f == 0:
-                TC_frame = np.insert(TC_frame, 0, 0)
-                TC2_frame = np.insert(TC2_frame, 0, 0)
+                zero = torch.zeros(1, device=TC_frame.device, dtype=TC_frame.dtype)
+                TC_frame = torch.cat([zero, TC_frame])
+                TC2_frame = torch.cat([zero, TC2_frame])
                 if len(np.arange(0, steps, args.sample_rate)) > 1:
-                    TC2_frame = np.insert(TC2_frame, 0, 0)
+                    TC2_frame = torch.cat([zero, TC2_frame])
 
-            out_frames[0].extend(B_frame)
-            out_frames[1].extend(SC_frame)
-            out_frames[2].extend(TC_frame)
-            out_frames[3].extend(TC2_frame)
+            out_frames[0].append(B_frame)
+            out_frames[1].append(SC_frame)
+            out_frames[2].append(TC_frame)
+            out_frames[3].append(TC2_frame)
 
             out_blocks[0].extend(B_blocks)
             out_blocks[1].extend(SC_blocks)
@@ -222,8 +234,23 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             if args.colorfulness:
                 out_frames[4].extend(colorfulness_batch)
 
+        if prefetcher is not None:
+            prefetcher.shutdown(wait=False)
         stream.close()
-    
+
+        # Single host sync: pull every accumulated per-frame stream off the device
+        # at once instead of paying one pipeline stall per GOP.
+        def gather(chunks):
+            return torch.cat(chunks).cpu().numpy().tolist() if len(chunks) > 0 else []
+
+        for i in range(4):
+            out_frames[i] = gather(out_frames[i])
+        out_frames_u = gather(out_frames_u)
+        out_frames_v = gather(out_frames_v)
+        out_mvc = gather(out_mvc)
+        out_tcsad = gather(out_tcsad)
+        out_tcmc = gather(out_tcmc)
+
         # Bit-Depth Normalization (Amplitude Scaling)
         # Brings 10-bit and 12-bit metrics down to an 8-bit equivalent scale.
         if args.bit_depth > 8:
