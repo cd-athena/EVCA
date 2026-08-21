@@ -4,6 +4,45 @@ import torch.nn.functional as F
 from dataclasses import dataclass, field
 from typing import Dict, Tuple
 
+# Per-(H, W, device) cache of the normalized base sampling grid and MV
+# normalization constants used by grid_sample warping. Rebuilding
+# meshgrid/linspace on every call costs two kernel launches per frame batch.
+_WARP_CACHE: Dict[Tuple[int, int, str], Tuple[torch.Tensor, float, float]] = {}
+
+# Per-device cache of the fixed 3x3 Gaussian smoothing kernel (2 groups).
+_GAUSS_CACHE: Dict[str, torch.Tensor] = {}
+
+
+def _warp_constants(H: int, W: int, device: torch.device) -> Tuple[torch.Tensor, float, float]:
+    """Returns (base_grid [1, H, W, 2], x_norm, y_norm) for grid_sample warping."""
+    key = (H, W, str(device))
+    cached = _WARP_CACHE.get(key)
+    if cached is None:
+        grid_y, grid_x = torch.meshgrid(
+            torch.linspace(-1, 1, H, device=device),
+            torch.linspace(-1, 1, W, device=device),
+            indexing='ij'
+        )
+        base_grid = torch.stack((grid_x, grid_y), dim=-1).unsqueeze(0)
+        cached = (base_grid, (W - 1) / 2.0, (H - 1) / 2.0)
+        _WARP_CACHE[key] = cached
+    return cached
+
+
+def _gauss_kernel(device: torch.device) -> torch.Tensor:
+    key = str(device)
+    weight = _GAUSS_CACHE.get(key)
+    if weight is None:
+        gauss = torch.tensor([
+            [1.0, 2.0, 1.0],
+            [2.0, 4.0, 2.0],
+            [1.0, 2.0, 1.0]
+        ], dtype=torch.float32, device=device) / 16.0
+        weight = gauss.repeat(2, 1, 1, 1)
+        _GAUSS_CACHE[key] = weight
+    return weight
+
+
 @dataclass
 class TemporalState:
     """Unified memory footprint (and lazy-evaluation graph) for the metric pipeline."""
@@ -30,15 +69,7 @@ class TemporalState:
             # 1. Coarse Vector Field Gaussian Smoothing (3x3 Kernel)
             # Replicate-pad by 1 to prevent boundary shrinkage
             mvs_padded = F.pad(self.mvs.float(), (1, 1, 1, 1), mode='replicate')
-            
-            gauss_kernel = torch.tensor([
-                [1.0, 2.0, 1.0],
-                [2.0, 4.0, 2.0],
-                [1.0, 2.0, 1.0]
-            ], dtype=torch.float32, device=self.ref_frame.device) / 16.0
-            
-            # Repeat for both dx and dy channels: [2, 1, 3, 3]
-            weight = gauss_kernel.repeat(2, 1, 1, 1)
+            weight = _gauss_kernel(self.ref_frame.device)
             mvs_smooth = F.conv2d(mvs_padded, weight, groups=2)
 
             # 2. Continuous Bilinear Upsampling to Pixel Grid
@@ -46,17 +77,12 @@ class TemporalState:
             # pixels; True would stretch the field and misregister it by up to half a block.
             pixel_mvs = F.interpolate(mvs_smooth, size=(H, W), mode='bilinear', align_corners=False)
 
-            # 3. Normalized Sampling Grid Construction [-1, 1]
-            grid_y, grid_x = torch.meshgrid(
-                torch.linspace(-1, 1, H, device=self.ref_frame.device),
-                torch.linspace(-1, 1, W, device=self.ref_frame.device),
-                indexing='ij'
-            )
-            base_grid = torch.stack((grid_x, grid_y), dim=-1).unsqueeze(0).repeat(B, 1, 1, 1)
+            # 3. Normalized Sampling Grid Construction [-1, 1] (cached per (H, W, device))
+            base_grid, x_norm, y_norm = _warp_constants(H, W, self.ref_frame.device)
 
             # Normalize pixel MVs to grid space [-1, 1]
-            dx = pixel_mvs[:, 1, :, :] / ((W - 1) / 2)
-            dy = pixel_mvs[:, 0, :, :] / ((H - 1) / 2)
+            dx = pixel_mvs[:, 1, :, :] / x_norm
+            dy = pixel_mvs[:, 0, :, :] / y_norm
             normalized_mvs = torch.stack((dx, dy), dim=-1)
 
             # Clamp to [-1, 1]: with align_corners=True this is exactly equivalent to
@@ -100,8 +126,9 @@ class SparsePatternBlockMatcher(nn.Module):
         self.bs_c = block_size // 2     # coarse block size
 
         if heuristic == 'diamond':
-        # 1.a 13-point Large Diamond Pattern (Quarter-Resolution Offsets)
-        # This gives us a highly efficient +/- 6 pixel effective search radius.
+        # 1.a 13-point Large Diamond Pattern (Half-Resolution Offsets)
+        # The search runs on a 2x2-pooled image, so offsets are half-res and the
+        # effective full-res search radius is +/- 6 pixels (even-valued MVs only).
             base_pattern = [
                 (0, 0),
                 (-1, 0), (1, 0), (0, -1), (0, 1),
@@ -109,7 +136,7 @@ class SparsePatternBlockMatcher(nn.Module):
                 (-3, 0), (3, 0), (0, -3), (0, 3)
             ]
         elif heuristic == 'square':
-        # 1.b 9-point Sparse Square (Radius = 2 at quarter-res -> Effective +/- 4 pixels)
+        # 1.b 9-point Sparse Square (Radius = 2 at half-res -> Effective +/- 4 pixels)
         # Captures center, cross, and extreme diagonals.
             base_pattern = [
                 (0, 0),
@@ -128,7 +155,8 @@ class SparsePatternBlockMatcher(nn.Module):
         self.R_c = max(max(abs(dy), abs(dx)) for dy, dx in self.pattern)
 
         # 2. Vectorized O(1) Lookup Table for Coordinate Decoding
-        # We pre-multiply by 2.0 so the lookup table outputs full-resolution vectors instantly.
+        # The search runs at half resolution (2x2 avg_pool), so we pre-multiply by 2.0
+        # to decode candidate offsets into full-resolution (even-valued) vectors.
         # register_buffer ensures this tensor automatically moves to MPS/CUDA alongside the model.
         lookup_tensor = torch.tensor(self.pattern, dtype=torch.float32) * 2.0
         self.register_buffer('pattern_lookup', lookup_tensor)
