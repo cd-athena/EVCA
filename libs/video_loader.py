@@ -142,6 +142,7 @@ def load_gop_optimized(args: argparse.Namespace, stream, start_frame: int, end_f
             V_batch_cpu = torch.empty((num_frames, uv_h, uv_w), dtype=pt_dtype, pin_memory=is_cuda)
         
         # 3. Populate pinned memory directly from the Memory Map
+        Y_view = U_view = V_view = None
         for i, frame in enumerate(frames):
             y_offset = int(frame * frame_byte_size)
             
@@ -164,11 +165,12 @@ def load_gop_optimized(args: argparse.Namespace, stream, start_frame: int, end_f
                     colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U_view, V_view, bit_depth=args.bit_depth)
                     colorfulness_batch.append(colorfulness_val)
         
-        # Delete the zero-copy views to release the C-level exported buffer pointers. 
-        # This guarantees the mmap can close safely.
-        if 'Y_view' in locals(): del Y_view
-        if 'U_view' in locals(): del U_view
-        if 'V_view' in locals(): del V_view
+        # Release the zero-copy views so the mmap's exported-buffer count drops to
+        # zero before close(). Plain rebinding (not `del` guarded by locals()): a
+        # locals() call snapshots the frame into the cached f_locals dict, which
+        # would keep its own reference to the last view and make mm.close() raise
+        # "cannot close exported pointers exist".
+        Y_view = U_view = V_view = None
             
         # 4. Asynchronous DMA transfer to GPU
         Y_gpu = Y_batch_cpu.to(device, non_blocking=is_cuda, dtype=torch.float32)
