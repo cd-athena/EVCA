@@ -154,6 +154,10 @@ class SparsePatternBlockMatcher(nn.Module):
         # Calculate padding dynamically based on the pattern's maximum reach
         self.R_c = max(max(abs(dy), abs(dx)) for dy, dx in self.pattern)
 
+        # Maximum decodable full-resolution MV magnitude (L-inf). A block whose MV
+        # reaches this bound sits on the search-pattern boundary (used for MV_sat_frac).
+        self.max_reach_fullres = float(2 * self.R_c)
+
         # 2. Vectorized O(1) Lookup Table for Coordinate Decoding
         # The search runs at half resolution (2x2 avg_pool), so we pre-multiply by 2.0
         # to decode candidate offsets into full-resolution (even-valued) vectors.

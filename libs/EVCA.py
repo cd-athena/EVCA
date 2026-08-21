@@ -61,6 +61,9 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_mvc = []
         out_tcsad = []
         out_tcmc = []
+        out_satfrac = []
+        out_meanmv = []
+        out_intrafrac = []
         
         if args.motion_estimation:
             dilation_factor = max(1, width // 1920) # 1080p has multiplier of 1
@@ -146,15 +149,22 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                     # Keep results on-device; a single host sync happens after the GOP loop.
                     mvc_batch = me_results['mvc'].ravel()
                     tcsad_batch = me_results['tc_sad'].ravel()
-                    
+
+                    # Per-frame ME diagnostics: fraction of blocks whose MV sits on the
+                    # search-pattern boundary, and mean MV magnitude.
+                    mv_mag = torch.sqrt(me_state.mvs[:, 0]**2 + me_state.mvs[:, 1]**2)
+                    meanmv_batch = mv_mag.mean(dim=[1, 2])
+                    mv_absmax = me_state.mvs.abs().amax(dim=1)
+                    satfrac_batch = (mv_absmax >= me_module.max_reach_fullres - 1e-6).float().mean(dim=[1, 2])
+
                     if need_block_info:
                         sad_map_flat = me_state.sad_map.squeeze(1).reshape(current_frames.shape[0], -1)
                         out_blocks_sad.append(sad_map_flat.detach())
-                        mv_mag = torch.sqrt(me_state.mvs[:, 0]**2 + me_state.mvs[:, 1]**2)
                         mv_flat = mv_mag.reshape(current_frames.shape[0], -1)
                         out_blocks_mv.append(mv_flat.detach())
                     
                     tcmc_batch = None
+                    intrafrac_batch = None
                     if args.profile == 'full':
                         # evaluate motion-compensated Residual (TC_MC)
                         # extract spatial residual dynamically
@@ -168,6 +178,9 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         
                         # intra-mode energy gating
                         curr_SC_blocks = SC_blocks[1:] if f == 0 else SC_blocks
+                        # Diagnostic: fraction of blocks where the intra gate fires
+                        # (residual energy >= plain SC before the min).
+                        intrafrac_batch = (SC_blocks_mc >= curr_SC_blocks).float().mean(dim=1).ravel()
                         SC_blocks_mc = torch.minimum(SC_blocks_mc, curr_SC_blocks)
                         
                         if need_block_info:
@@ -181,12 +194,20 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         zero = torch.zeros(1, device=mvc_batch.device, dtype=mvc_batch.dtype)
                         mvc_batch = torch.cat([zero, mvc_batch])
                         tcsad_batch = torch.cat([zero, tcsad_batch])
+                        satfrac_batch = torch.cat([zero, satfrac_batch])
+                        meanmv_batch = torch.cat([zero, meanmv_batch])
                         if tcmc_batch is not None:
                             tcmc_batch = torch.cat([zero, tcmc_batch])
+                        if intrafrac_batch is not None:
+                            intrafrac_batch = torch.cat([zero, intrafrac_batch])
                     out_mvc.append(mvc_batch)
                     out_tcsad.append(tcsad_batch)
+                    out_satfrac.append(satfrac_batch)
+                    out_meanmv.append(meanmv_batch)
                     if tcmc_batch is not None:
                         out_tcmc.append(tcmc_batch)
+                    if intrafrac_batch is not None:
+                        out_intrafrac.append(intrafrac_batch)
                 last_Y_frame = Y_frames[-1:]
                 
             # Chroma Processing
@@ -249,6 +270,9 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_mvc = gather(out_mvc)
         out_tcsad = gather(out_tcsad)
         out_tcmc = gather(out_tcmc)
+        out_satfrac = gather(out_satfrac)
+        out_meanmv = gather(out_meanmv)
+        out_intrafrac = gather(out_intrafrac)
 
         # Bit-Depth Normalization (Amplitude Scaling)
         # Brings 10-bit and 12-bit metrics down to an 8-bit equivalent scale.
@@ -273,11 +297,14 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
 
         # Export CSV
         final_csv_path = export_features_to_csv(args, file, out_frames,
-            out_frames_u=out_frames_u if args.chroma_complexity else None, 
+            out_frames_u=out_frames_u if args.chroma_complexity else None,
             out_frames_v=out_frames_v if args.chroma_complexity else None,
             out_mvc=out_mvc if args.motion_estimation else None,
             out_tcsad=out_tcsad if args.motion_estimation else None,
-            out_tcmc=out_tcmc if (args.motion_estimation and args.profile == 'full') else None
+            out_tcmc=out_tcmc if (args.motion_estimation and args.profile == 'full') else None,
+            out_satfrac=out_satfrac if args.motion_estimation else None,
+            out_meanmv=out_meanmv if args.motion_estimation else None,
+            out_intrafrac=out_intrafrac if (args.motion_estimation and args.profile == 'full') else None
         )
         # Additional block plotting / metrics
         if args.block_info == 0 and args.plot_info == 1:
