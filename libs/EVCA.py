@@ -32,11 +32,7 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
     
     # Pre-compute the DCT weight tensor (32x32)
     cached_weights_dct = weight_dct(args, device)
-    
-    # Pre-compute sub-TU DCT weights (16x16) for residual processing
-    sub_tu_size = args.block_size // 2
-    cached_weights_dct_sub = weight_dct(args, device, size=sub_tu_size)
-    
+
     for file in input_list:
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
         nframes = args.frames if args.frames != 0 else number_of_frames

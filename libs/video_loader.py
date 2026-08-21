@@ -114,11 +114,19 @@ def load_gop_optimized(args: argparse.Namespace, stream, start_frame: int, end_f
         # HARDWARE CHECK: only pin memory if a NVIDIA GPU is being used.
         # Apple MPS (Unified Memory) or CPU-only modes will bypass this safely.
         is_cuda = (device.type == 'cuda')
-        
+
         # Setup dynamic types and byte offsets
         np_dtype = np.uint8 if args.bit_depth == 8 else np.uint16
         pt_dtype = torch.uint8 if args.bit_depth == 8 else torch.int16
         bytes_per_sample = 1 if args.bit_depth == 8 else 2
+
+        def as_torch(plane: np.ndarray) -> torch.Tensor:
+            # PyTorch lacks uint16 support: reinterpret uint16 buffers as int16 without
+            # copying. uint8 maps natively to torch.uint8 and must not be reinterpreted
+            # (viewing it as int16 would halve the row width and garble sample pairs).
+            if plane.dtype == np.uint16:
+                plane = plane.view(np.int16)
+            return torch.from_numpy(plane)
         
         # 2. pre-allocate Pinned Memory (page-locked CPU RAM for fast PCIe DMA transfer)
         Y_batch_cpu = torch.empty((num_frames, height, width), dtype=pt_dtype, pin_memory=is_cuda)
@@ -135,8 +143,7 @@ def load_gop_optimized(args: argparse.Namespace, stream, start_frame: int, end_f
             
             # Extract Y (Luma)
             Y_view = np.frombuffer(mm, dtype=np_dtype, count=luma_size, offset=y_offset).reshape(height, width)
-            # Use .view(np.int16) to map to a supported type without copying memory
-            Y_batch_cpu[i].copy_(torch.from_numpy(Y_view.view(np.int16)))
+            Y_batch_cpu[i].copy_(as_torch(Y_view))
             
             # Extract U and V (Chroma)
             if U_batch_cpu is not None:
@@ -146,8 +153,8 @@ def load_gop_optimized(args: argparse.Namespace, stream, start_frame: int, end_f
                 U_view = np.frombuffer(mm, dtype=np_dtype, count=chroma_size, offset=u_offset).reshape(uv_h, uv_w)
                 V_view = np.frombuffer(mm, dtype=np_dtype, count=chroma_size, offset=v_offset).reshape(uv_h, uv_w)
                 
-                U_batch_cpu[i].copy_(torch.from_numpy(U_view.view(np.int16)))
-                V_batch_cpu[i].copy_(torch.from_numpy(V_view.view(np.int16)))
+                U_batch_cpu[i].copy_(as_torch(U_view))
+                V_batch_cpu[i].copy_(as_torch(V_view))
                 
                 if args.colorfulness:
                     colorfulness_val = calculate_hasler_suesstrunk_colorfulness_yuv(U_view, V_view, bit_depth=args.bit_depth)

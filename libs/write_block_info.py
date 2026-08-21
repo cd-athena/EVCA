@@ -60,7 +60,7 @@ def write_block_info(args, B_blocks, SC_blocks, TC_blocks, TC2_blocks, number_of
         if i < 2:
             df_TC2_blocks[f'frame_{i:03d}'] = np.zeros(TC2_blocks.shape[1])
         else:
-            df_TC2_blocks[f'frame_{i:03d}'] = TC_blocks[i - 2, :]
+            df_TC2_blocks[f'frame_{i:03d}'] = TC2_blocks[i - 2, :]
 
     df_TC2_blocks.to_csv(f'{directory}/{file_name[:-4]}_TC2_blocks.csv', index=False)
 

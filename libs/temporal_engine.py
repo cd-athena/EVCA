@@ -42,7 +42,9 @@ class TemporalState:
             mvs_smooth = F.conv2d(mvs_padded, weight, groups=2)
 
             # 2. Continuous Bilinear Upsampling to Pixel Grid
-            pixel_mvs = F.interpolate(mvs_smooth, size=(H, W), mode='bilinear', align_corners=True)
+            # align_corners=False: coarse MV samples represent block centers, not corner
+            # pixels; True would stretch the field and misregister it by up to half a block.
+            pixel_mvs = F.interpolate(mvs_smooth, size=(H, W), mode='bilinear', align_corners=False)
 
             # 3. Normalized Sampling Grid Construction [-1, 1]
             grid_y, grid_x = torch.meshgrid(
@@ -187,7 +189,10 @@ class MetricMVC(EVCATemporalMetric):
     
     def forward(self, state: TemporalState) -> torch.Tensor:
         # F.conv2d requires [B, C, H, W] -> mvs are [B, 2, H_b, W_b]
-        mv_gradients = F.conv2d(state.mvs, self.laplacian_kernel, groups=2, padding=1)
+        # Replicate-pad instead of zero-padding: border blocks would otherwise see
+        # phantom zero-motion neighbors, producing spurious gradients on global motion.
+        mvs_padded = F.pad(state.mvs, (1, 1, 1, 1), mode='replicate')
+        mv_gradients = F.conv2d(mvs_padded, self.laplacian_kernel, groups=2)
         # average absolute spatial variance (chaos of the motion field)
         return torch.mean(torch.abs(mv_gradients), dim=[1, 2, 3])
 

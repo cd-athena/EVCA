@@ -31,14 +31,17 @@ def plot_block_info_EVCA(args, number_of_frames):
     df_MV = pd.read_csv(f'{csv_base}_MV_blocks.csv') if is_me and os.path.exists(f'{csv_base}_MV_blocks.csv') else None
     df_TCMC = pd.read_csv(f'{csv_base}_TCMC_blocks.csv') if is_me and getattr(args, 'profile', 'fast') == 'full' and os.path.exists(f'{csv_base}_TCMC_blocks.csv') else None
 
+    bytes_per_sample = 1 if args.bit_depth == 8 else 2
+    np_dtype = np.uint8 if args.bit_depth == 8 else np.uint16
+
     for frame in frames:
         col_name = f'frame_{frame:03d}'
-        
+
         if args.pix_fmt == 'yuv420':
-            stream.seek(int(frame) * int(width) * int(height) * 3 // 2)
+            stream.seek(int(frame) * int(width) * int(height) * 3 * bytes_per_sample // 2)
         elif args.pix_fmt == 'yuv444':
-            stream.seek(int(frame) * int(width) * int(height) * 3)
-        Y = np.fromfile(stream, dtype=np.uint8, count=width * height).reshape(height, width)
+            stream.seek(int(frame) * int(width) * int(height) * 3 * bytes_per_sample)
+        Y = np.fromfile(stream, dtype=np_dtype, count=width * height).reshape(height, width)
         
         plot_items = [(Y, 'Original Frame')]
         
