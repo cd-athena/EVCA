@@ -53,7 +53,8 @@ def print_custom_help():
     print('--device                  Compute device: "auto" (CUDA > MPS > CPU), "cuda", "mps", or "cpu". Default: auto')
     print('--prefetch                Overlap GOP loading with compute via a background thread. 1=on (default), 0=off.')
 
-def get_parser_arguments() -> argparse.Namespace:
+def get_parser_arguments(argv=None) -> argparse.Namespace:
+    """Parses CLI arguments; pass an explicit argv list (e.g. []) for programmatic use."""
     parser = argparse.ArgumentParser(add_help=False, )
     parser.add_argument('-i', '--input', type=str, default='test.yuv')
     parser.add_argument('-d', '--dir', type=str)
@@ -80,7 +81,7 @@ def get_parser_arguments() -> argparse.Namespace:
     parser.add_argument('--profile', type=str, default='fast', choices=['fast', 'full'])
     parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cuda', 'mps', 'cpu'])
     parser.add_argument('--prefetch', type=int, default=1, choices=[0, 1])
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main():
