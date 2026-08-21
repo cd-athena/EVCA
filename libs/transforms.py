@@ -22,11 +22,37 @@ def _dct_basis(n: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor
     return basis
 
 
-def dct_2d(blocks: torch.Tensor) -> torch.Tensor:
+def dct_2d_matmul(blocks: torch.Tensor) -> torch.Tensor:
     """Separable 2D DCT-II over the last two dimensions via cached basis matmuls."""
     rows = _dct_basis(blocks.shape[-2], blocks.device, blocks.dtype)
     cols = _dct_basis(blocks.shape[-1], blocks.device, blocks.dtype)
     return rows @ blocks @ cols.transpose(0, 1)
+
+
+def dct_2d_torchdct(blocks: torch.Tensor) -> torch.Tensor:
+    """FFT-based reference implementation (the `torch_dct` package).
+
+    Kept as an ablation reference only: it is an optional dependency and, unlike the
+    matmul path, torch.fft has no native MPS kernel.
+    """
+    try:
+        import torch_dct
+    except ImportError as exc:
+        raise ImportError(
+            "--dct-impl torch_dct requires the optional 'torch-dct' package "
+            "(pip install torch-dct); the default 'matmul' implementation has no "
+            "extra dependency."
+        ) from exc
+    return torch_dct.dct_2d(blocks)
+
+
+def dct_2d(blocks: torch.Tensor, impl: str = 'matmul') -> torch.Tensor:
+    """Separable 2D DCT-II dispatching on the `--dct-impl` selection."""
+    if impl == 'matmul':
+        return dct_2d_matmul(blocks)
+    if impl == 'torch_dct':
+        return dct_2d_torchdct(blocks)
+    raise ValueError(f'unknown dct-impl: {impl}')
 
 
 def apply_luma_transform(args: argparse.Namespace, blocks: torch.Tensor, dwt_model=None) -> torch.Tensor:
@@ -44,7 +70,7 @@ def apply_luma_transform(args: argparse.Namespace, blocks: torch.Tensor, dwt_mod
     elif args.transform == 'DCT_B':
         return dct_b.dct_32_2d(blocks.type(torch.int32))
     else:
-        return dct_2d(blocks)
+        return dct_2d(blocks, getattr(args, 'dct_impl', 'matmul'))
 
 
 def apply_chroma_transform(args: argparse.Namespace, U_blocks: torch.Tensor, V_blocks: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -56,6 +82,7 @@ def apply_chroma_transform(args: argparse.Namespace, U_blocks: torch.Tensor, V_b
         U_DTs = dct_b.dct_16_2d(U_blocks.type(torch.int32))
         V_DTs = dct_b.dct_16_2d(V_blocks.type(torch.int32))
     else:
-        U_DTs = dct_2d(U_blocks)
-        V_DTs = dct_2d(V_blocks)
+        impl = getattr(args, 'dct_impl', 'matmul')
+        U_DTs = dct_2d(U_blocks, impl)
+        V_DTs = dct_2d(V_blocks, impl)
     return U_DTs, V_DTs
