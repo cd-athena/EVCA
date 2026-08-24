@@ -24,11 +24,16 @@ class TestSparsePatternBlockMatcher(unittest.TestCase):
 
     def test_heuristic_initialization(self):
         """Test valid and invalid search pattern initialization."""
-        matcher_diamond = SparsePatternBlockMatcher(block_size=32, heuristic='diamond')
-        self.assertEqual(matcher_diamond.num_cands, 13)
+        expected = {'diamond': 17, 'diamond_dense': 21, 'diamond_axis': 13, 'square': 9}
+        for heuristic, num_cands in expected.items():
+            matcher = SparsePatternBlockMatcher(block_size=32, heuristic=heuristic)
+            self.assertEqual(matcher.num_cands, num_cands, heuristic)
 
-        matcher_square = SparsePatternBlockMatcher(block_size=32, heuristic='square')
-        self.assertEqual(matcher_square.num_cands, 9)
+        # All three diamonds keep the same +/- 6 px full-res reach, so MV_sat_frac
+        # stays comparable across them.
+        for heuristic in ('diamond', 'diamond_dense', 'diamond_axis'):
+            matcher = SparsePatternBlockMatcher(block_size=32, heuristic=heuristic)
+            self.assertEqual(matcher.max_reach_fullres, 6.0, heuristic)
 
         with self.assertRaises(ValueError):
             SparsePatternBlockMatcher(block_size=32, heuristic='invalid_heuristic')

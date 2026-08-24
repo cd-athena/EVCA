@@ -7,7 +7,7 @@ from libs.motion_compensation import (BlockMC, DenseMC, OBMC, build_compensator,
                                       obmc_weights, vector_median)
 from libs.transforms import dct_2d_matmul, dct_2d_torchdct
 from libs.weight_dct import weight_dct
-from main import PRESETS, get_parser_arguments
+from main import PRESETS, _add_arguments, get_parser_arguments
 from tests.conftest import make_args, run_evca, write_raw_yuv
 from validation.synthetic import gen_translation
 
@@ -125,11 +125,76 @@ def test_vector_median_rejects_outlier():
 
 # ------------------------------------------------------------------------ flags
 
-def test_preset_iter4_matches_defaults():
-    """`--preset iter4` must reproduce today's defaults exactly (Phase 4 contract)."""
+def test_preset_iter4_pins_the_reference_search_pattern():
+    """`--preset iter4` must reproduce the Iteration-4 reference, not today's defaults.
+
+    Phase 3 changed the default search pattern from the axis-only 13-point plus to the
+    17-point diagonal-carrying `diamond`, so the preset and the defaults now diverge on
+    exactly that axis and agree everywhere else. This is the preset earning its keep:
+    before this change the two were identical and the pin was vacuous.
+    """
     defaults = get_parser_arguments([])
+    preset = get_parser_arguments(['--preset', 'iter4'])
+    assert preset.heuristic == 'diamond_axis'
+    assert defaults.heuristic == 'diamond'
     for dest, value in PRESETS['iter4'].items():
-        assert getattr(defaults, dest) == value, dest
+        assert getattr(preset, dest) == value, dest
+        if dest != 'heuristic':
+            assert getattr(defaults, dest) == value, dest
+
+
+def test_heuristic_choices_match_patterns():
+    """main.py spells out the --heuristic choices to keep `--help` torch-free; this is
+    the mechanism that stops them drifting from the real pattern table."""
+    import argparse
+
+    from libs.temporal_engine import SEARCH_PATTERNS
+    parser = argparse.ArgumentParser(add_help=False)
+    _add_arguments(parser)
+    action = next(a for a in parser._actions if a.dest == 'heuristic')
+    assert sorted(action.choices) == sorted(SEARCH_PATTERNS)
+
+
+@pytest.mark.parametrize('name', sorted(['diamond', 'diamond_axis', 'diamond_dense', 'square']))
+def test_every_pattern_builds_and_decodes(name):
+    """Each pattern must be unique, centred, and decode to even full-res vectors."""
+    from libs.temporal_engine import SEARCH_PATTERNS, SparsePatternBlockMatcher
+    pattern = SEARCH_PATTERNS[name]
+    assert len(set(pattern)) == len(pattern), 'duplicate candidate'
+    assert (0, 0) in pattern, 'pattern must be able to report zero motion'
+    m = SparsePatternBlockMatcher(block_size=32, heuristic=name)
+    assert m.max_reach_fullres == 2 * max(max(abs(a), abs(b)) for a, b in pattern)
+    assert torch.equal(m.pattern_lookup, torch.tensor(pattern, dtype=torch.float32) * 2.0)
+
+
+def test_diamond_patterns_represent_diagonal_motion():
+    """The default pattern must be able to express diagonal motion.
+
+    `diamond_axis` cannot -- every candidate lies on an axis -- which is why a true
+    (4, 4) translation used to be estimated as magnitude 4.00 against a true 5.66.
+    """
+    from libs.temporal_engine import SEARCH_PATTERNS
+    diagonals = lambda p: [c for c in SEARCH_PATTERNS[p] if c[0] != 0 and c[1] != 0]
+    assert diagonals('diamond_axis') == [], 'reference pattern is axis-only by definition'
+    assert len(diagonals('diamond')) == 4
+    assert len(diagonals('diamond_dense')) == 8
+    # (+/-4, +/-4) full-res must be reachable in the default pattern
+    assert (2, 2) in SEARCH_PATTERNS['diamond']
+
+
+def test_default_pattern_beats_reference_on_diagonal_motion():
+    """End-to-end: the new default must estimate a 45-degree pan that the old one missed."""
+    from libs.temporal_engine import SparsePatternBlockMatcher
+    frames, _ = gen_translation(256, 320, 3, vy=4, vx=4, seed=11)
+    to_t = lambda a: torch.from_numpy(np.ascontiguousarray(np.rint(a))).float()[None, None]
+    curr, ref = to_t(frames[2]), to_t(frames[1])
+    err = {}
+    for name in ('diamond_axis', 'diamond'):
+        mvs, _ = SparsePatternBlockMatcher(block_size=32, heuristic=name)(curr, ref)
+        interior = mvs[0, :, 1:-1, 1:-1]
+        err[name] = torch.sqrt((interior[0] - 4) ** 2 + (interior[1] - 4) ** 2).mean().item()
+    assert err['diamond'] < 0.01, f"default pattern should be exact, got {err['diamond']:.3f}"
+    assert err['diamond_axis'] > 4.0, 'reference pattern is expected to fail here'
 
 
 def test_preset_yields_to_explicit_flag():

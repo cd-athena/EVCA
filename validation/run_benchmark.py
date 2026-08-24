@@ -7,6 +7,14 @@ per-frame x265 ground truth, computes frame-level and sequence-mean correlations
 writes everything to `validation/results/<label>_<sha>/` plus a summary section in
 `validation/RESULTS.md`.
 
+The ledger section leads with the **mean within-sequence** correlation, which is the
+decision statistic: pooling over a handful of sequences mixes between-sequence content
+ranking into what is meant to be a per-frame prediction score. Temporal metrics are
+judged on `PCC_log`, since P-frame bits grow with the log of residual variance. Every
+`TC_MC` figure is accompanied by `intra_frac`, which says how often the intra gate
+fired and therefore how much of `TC_MC` is spatial complexity rather than motion
+compensation. See `validation/report.py` for both conventions.
+
 `--extra-args` passes ablation flags straight through to `main.py`, so a Phase 2+
 matrix is driven by repeated invocations with distinct labels.
 """
@@ -28,7 +36,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from validation import ground_truth as gt  # noqa: E402
 from validation.report import (format_markdown, frame_level_report,  # noqa: E402
-                               headline_table, sequence_mean_report)
+                               headline_table, mc_health_table, mean_within_table,
+                               sequence_mean_report)
 
 RESULTS_MD = SCRIPT_DIR / 'RESULTS.md'
 RESULTS_DIR = SCRIPT_DIR / 'results'
@@ -112,7 +121,8 @@ def collect_evca_frames(sequences: list, profiles: list, n_frames: int, out_dir:
 
 
 def append_ledger(out_dir: Path, args, cfg: dict, sha: str, fps_df: pd.DataFrame,
-                  head: pd.DataFrame, seq_mean: pd.DataFrame, notes: list) -> None:
+                  head: pd.DataFrame, seq_mean: pd.DataFrame, notes: list,
+                  within: pd.DataFrame = None, mc_health: pd.DataFrame = None) -> None:
     """Appends this run's summary section to validation/RESULTS.md."""
     lines = [
         '',
@@ -140,9 +150,23 @@ def append_ledger(out_dir: Path, args, cfg: dict, sha: str, fps_df: pd.DataFrame
                    .reset_index())
         lines += ['**Throughput**', '', format_markdown(fps_tbl, '{:.2f}'), '']
 
+    if within is not None and not within.empty:
+        lines += ['**Mean within-sequence correlations** — the decision statistic. '
+                  '`stat` is `PCC_log` for temporal metrics (bits grow with the log '
+                  'of residual variance) and `PCC` for spatial ones; `primary_min`/'
+                  '`primary_max` are the worst and best single sequence.', '',
+                  format_markdown(within), '']
+    if mc_health is not None and not mc_health.empty:
+        lines += ['**Motion-search and intra-gate health**, per sequence, means over '
+                  'frames ≥ 1. `intra_frac` says how much of `TC_MC` is the intra '
+                  'fallback rather than motion compensation; `MV_sat_frac` says how '
+                  'much of `TC_SAD` is search failure rather than content complexity.',
+                  '', format_markdown(mc_health), '']
     if not head.empty:
-        lines += ['**Frame-level pooled correlations** (CI = 95 % bootstrap; '
-                  '`blk` = sequence-level block bootstrap)', '',
+        lines += ['**Frame-level pooled correlations** (reported, not decided on — '
+                  'pooling mixes in between-sequence content ranking). `primary` is '
+                  'the domain statistic named in `stat`; CI = 95 % bootstrap, '
+                  '`blk` = sequence-level block bootstrap.', '',
                   format_markdown(head), '']
     if not seq_mean.empty:
         lines += ['**Sequence-mean correlations** (legacy, n = sequences)', '',
@@ -205,8 +229,12 @@ def main() -> int:
     evca.to_csv(out_dir / 'evca_frames.csv', index=False)
     fps_df.to_csv(out_dir / 'fps.csv', index=False)
 
+    mc_health = mc_health_table(evca)
+    if not mc_health.empty:
+        mc_health.to_csv(out_dir / 'mc_health.csv', index=False)
+
     has_ffmpeg = gt.ffmpeg_available()
-    frame_corr = seq_corr = head = pd.DataFrame()
+    frame_corr = seq_corr = head = within = pd.DataFrame()
     if not has_ffmpeg:
         notes.append('**ffmpeg/libx265 unavailable** — EVCA features and fps were '
                      'measured, but no ground truth or correlations were computed.')
@@ -227,8 +255,10 @@ def main() -> int:
         frame_corr.to_csv(out_dir / 'frame_level_correlations.csv', index=False)
         seq_corr = sequence_mean_report(evca, gt_means, qps)
         seq_corr.to_csv(out_dir / 'sequence_mean_correlations.csv', index=False)
-        head = headline_table(frame_corr, [m for m in HEADLINE
-                                           if m in evca.columns])
+        headline = [m for m in HEADLINE if m in evca.columns]
+        within = mean_within_table(frame_corr, headline)
+        within.to_csv(out_dir / 'mean_within_correlations.csv', index=False)
+        head = headline_table(frame_corr, headline, df_evca=evca)
 
     meta = {
         'label': args.label, 'phase': args.phase, 'subset': args.subset,
@@ -246,11 +276,18 @@ def main() -> int:
         json.dump(meta, f, indent=2)
 
     if not args.skip_ledger:
-        append_ledger(out_dir, args, cfg, sha, fps_df, head, seq_corr, notes)
+        append_ledger(out_dir, args, cfg, sha, fps_df, head, seq_corr, notes,
+                      within=within, mc_health=mc_health)
 
     print(f'\nResults written to {out_dir}')
+    if not within.empty:
+        print('\n=== Mean within-sequence correlations (decision statistic) ===')
+        print(within.to_string(index=False))
+    if not mc_health.empty:
+        print('\n=== Motion-search / intra-gate health ===')
+        print(mc_health.to_string(index=False))
     if not head.empty:
-        print('\n=== Frame-level pooled correlations ===')
+        print('\n=== Frame-level pooled correlations (reported) ===')
         print(head.to_string(index=False))
     return 0
 

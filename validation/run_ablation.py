@@ -4,12 +4,22 @@
         --axis mc=dense_smooth,dense --axis gate=intra,none
 
 Builds the ground truth once, then runs one EVCA extraction per cell of the
-flag cross-product and reports pooled frame-level correlation (with CI) plus the
-mean within-sequence correlation for the chosen metric. Boolean flags take the
-values `on`/`off`, e.g. `--axis residual-dc=off,on`.
+flag cross-product and reports the mean within-sequence correlation for the chosen
+metric, with the pooled figure alongside. Boolean flags take the values `on`/`off`,
+e.g. `--axis residual-dc=off,on`.
 
-Ranking follows the gate rule: highest lower bound of the 95 % frame-level
-bootstrap CI of the pooled PCC, averaged over QPs; ties go to the cheaper variant.
+Ranking follows the gate rule: **highest mean within-sequence correlation**,
+averaged over QPs, using `PCC_log` for temporal metrics and `PCC` for spatial ones;
+ties go to the cheaper variant.
+
+The rule used to be the lower bound of the pooled frame-level bootstrap CI. That
+was replaced because the pooled statistic is dominated by between-sequence content
+ranking when the corpus is small: on the macOS re-baseline it ranked `mean_mv_mag`
+-- the average motion-vector length, a search diagnostic whose within-sequence
+correlation is *negative* -- as the best temporal metric, ahead of `TC_MC`. A rule
+that prefers a metric which cannot predict which frame costs more bits is not
+measuring metric quality. The pooled columns are still reported, and `--rank-by`
+can restore the old key for comparison.
 """
 import argparse
 import itertools
@@ -26,11 +36,17 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from validation import ground_truth as gt  # noqa: E402
-from validation.report import format_markdown, frame_level_report  # noqa: E402
+from validation.report import (classify, companion_column, format_markdown,  # noqa: E402
+                               frame_level_report, primary_stat)
 from validation.run_benchmark import (CACHE_DIR, RESULTS_DIR, RESULTS_MD,  # noqa: E402
                                       SUBSET_FRAMES, collect_evca_frames, git_sha)
 
 BOOL_VALUES = {'on': True, 'off': False}
+
+# Ranking keys. 'within' is the gate rule; 'pooled_ci_lo' is the superseded rule,
+# kept so a run can reproduce an older ablation's ordering for comparison.
+RANK_KEYS = {'within': 'within_mean', 'pooled_ci_lo': 'PCC_lo_mean',
+             'pooled': 'PCC_mean'}
 
 
 def parse_axis(spec: str):
@@ -73,8 +89,19 @@ def main() -> int:
     p.add_argument('--sequence-root', default=None)
     p.add_argument('--n-boot', type=int, default=1000)
     p.add_argument('--seed', type=int, default=12345)
+    p.add_argument('--rank-by', default='within', choices=sorted(RANK_KEYS),
+                   help="ranking key: 'within' (gate rule, mean within-sequence "
+                        "correlation) or the superseded pooled keys")
     p.add_argument('--skip-ledger', action='store_true')
     args = p.parse_args()
+
+    domain = classify(args.metric)
+    if not domain:
+        p.error(f'--metric {args.metric!r} is neither a temporal nor a spatial '
+                f'metric; it cannot be ranked')
+    stat = primary_stat(domain)
+    companion = companion_column(args.metric)
+    companion_label = companion_column(args.metric).split('_', 1)[-1] if companion else ''
 
     cfg = gt.load_config(Path(args.config), args.sequence_root)
     if not cfg['sequences']:
@@ -120,55 +147,86 @@ def main() -> int:
 
         pooled = corr[corr['scope'] == 'pooled']
         per_seq = corr[corr['scope'] != 'pooled']
+        # Decision statistic: mean within-sequence correlation, log-transformed for
+        # temporal metrics. Per QP first, then averaged, so a QP with fewer usable
+        # sequences cannot dominate the mean.
+        per_qp = per_seq.groupby('QP')[stat].mean()
         row = {'variant': name,
-               'fps': fps_df['frames'].sum() / fps_df['seconds'].sum(),
+               'within_mean': float(per_qp.mean()) if len(per_qp) else np.nan,
+               'within_min': float(per_seq[stat].min()) if len(per_seq) else np.nan,
+               'within_PCC_mean': per_seq['PCC'].mean(),
                'PCC_mean': pooled['PCC'].mean(),
                'PCC_lo_mean': pooled['PCC_lo'].mean(),
                'PCC_hi_mean': pooled['PCC_hi'].mean(),
                'SRCC_mean': pooled['SRCC'].mean(),
-               'perseq_PCC_mean': per_seq['PCC'].mean()}
+               'fps': fps_df['frames'].sum() / fps_df['seconds'].sum()}
+        if companion and companion in evca.columns:
+            row[companion_label] = float(evca.loc[evca['frame_idx'] >= 1, companion].mean())
         for qp in qps:
-            sub = pooled[pooled['QP'] == qp]
-            row[f'PCC_qp{qp}'] = sub['PCC'].iloc[0] if len(sub) else np.nan
+            sub = per_qp.reindex([qp])
+            row[f'within_qp{qp}'] = float(sub.iloc[0]) if sub.notna().any() else np.nan
         rows.append(row)
-        print(f'    PCC {row["PCC_mean"]:.4f} (CI lo {row["PCC_lo_mean"]:.4f}), '
-              f'per-seq {row["perseq_PCC_mean"]:.4f}, {row["fps"]:.1f} fps', flush=True)
+        extra = (f', {companion_label} {row[companion_label]:.3f}'
+                 if companion_label in row else '')
+        print(f'    within-seq {stat} {row["within_mean"]:.4f} '
+              f'(min {row["within_min"]:.4f}), pooled PCC {row["PCC_mean"]:.4f}'
+              f'{extra}, {row["fps"]:.1f} fps', flush=True)
 
     if not rows:
         print('ERROR: no variant produced the requested metric.', file=sys.stderr)
         return 1
 
-    df = pd.DataFrame(rows).sort_values('PCC_lo_mean', ascending=False).reset_index(drop=True)
+    rank_key = RANK_KEYS[args.rank_by]
+    df = pd.DataFrame(rows).sort_values(rank_key, ascending=False).reset_index(drop=True)
     df.to_csv(out_dir / 'ablation_matrix.csv', index=False)
 
     with open(out_dir / 'run_meta.json', 'w') as f:
         json.dump({'label': args.label, 'phase': args.phase, 'subset': args.subset,
                    'git_sha': git_sha(short=False), 'metric': args.metric,
+                   'metric_domain': domain, 'rank_by': args.rank_by,
+                   'rank_key': rank_key, 'primary_stat': stat,
+                   'companion_metric': companion or None,
                    'profile': args.profile, 'axes': dict(args.axis),
                    'extra_args': base_extra, 'qps': qps,
                    'sequences': [s['name'] for s in cfg['sequences']],
+                   'missing_sequences': [s['name'] for s in cfg.get('missing', [])],
                    'n_boot': args.n_boot, 'seed': args.seed,
                    'timestamp': datetime.now().isoformat(timespec='seconds')}, f, indent=2)
 
-    print('\n=== Ablation matrix (ranked by CI lower bound) ===')
+    print(f'\n=== Ablation matrix (ranked by {rank_key}) ===')
     print(df.to_string(index=False))
 
     if not args.skip_ledger:
-        cols = ['variant', 'PCC_mean', 'PCC_lo_mean', 'PCC_hi_mean', 'SRCC_mean',
-                'perseq_PCC_mean', 'fps']
+        cols = ['variant', 'within_mean', 'within_min', 'within_PCC_mean',
+                'PCC_mean', 'PCC_lo_mean', 'SRCC_mean', 'fps']
+        if companion_label and companion_label in df.columns:
+            cols.insert(4, companion_label)
+        note = (f'Values are averaged over QPs {"/".join(str(q) for q in qps)}. '
+                f'`within_mean` is the gate ranking key: the mean **within-sequence** '
+                f'`{stat}` of `{args.metric}`, which strips the between-sequence '
+                f'content-ranking term that dominates the pooled figure. '
+                f'`within_min` is the worst single sequence. Pooled columns are '
+                f'reported, not decided on.')
+        if companion_label and companion_label in df.columns:
+            note += (f' `{companion_label}` is the fraction of blocks where the intra '
+                     f'gate fired: the higher it is, the more `{args.metric}` is '
+                     f'reporting spatial complexity rather than motion compensation.')
         lines = ['', f'### Ablation `{args.label}` — {datetime.now():%Y-%m-%d %H:%M}', '',
                  f'- Phase: {args.phase}',
                  f'- Commit: `{git_sha(short=False)}`',
                  f'- Subset: **{args.subset}**, profile `{args.profile}`, '
-                 f'ranking metric `{args.metric}`',
+                 f'ranking metric `{args.metric}` ({domain.lower()}, judged on `{stat}`)',
+                 f'- Ranking key: `{rank_key}` (`--rank-by {args.rank_by}`)',
                  f'- Axes: ' + '; '.join(f'`{k}` ∈ {{{", ".join(v)}}}' for k, v in args.axis),
                  f'- Extra args: `{" ".join(base_extra) or "(none)"}`',
                  f'- Sequences: {", ".join(s["name"] for s in cfg["sequences"])}',
                  f'- Results: `{out_dir.relative_to(SCRIPT_DIR.parent)}`',
-                 '',
-                 'Values are averaged over QPs 22/27/32/37. `PCC_lo_mean` is the gate '
-                 'ranking key; `perseq_PCC_mean` is the mean within-sequence PCC.', '',
-                 format_markdown(df[cols]), '']
+                 '']
+        if cfg.get('missing'):
+            lines.append('- Missing sequences (skipped): '
+                         + ', '.join(s['name'] for s in cfg['missing']))
+            lines.append('')
+        lines += [note, '', format_markdown(df[cols]), '']
         with open(RESULTS_MD, 'a') as f:
             f.write('\n'.join(lines) + '\n')
     return 0

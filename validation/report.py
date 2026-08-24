@@ -5,6 +5,19 @@ Frame alignment: EVCA row `f` carries temporal metrics describing the transition
 coding P-frame `f`. Frame 0 is the I-frame in the LDP stream and is excluded from
 every temporal comparison. Spatial metrics are compared against the All-Intra bits
 of the same frame index, with all frames retained.
+
+Two conventions decide which number is the *decision* statistic:
+
+* **Scope.** The pooled statistic mixes between-sequence content ranking into what
+  is meant to be a per-frame prediction score, and with a handful of sequences the
+  between-sequence term dominates. Measured on the macOS re-baseline, ranking by
+  pooled PCC puts `mean_mv_mag` (average motion-vector length, a search diagnostic
+  with *negative* within-sequence correlation) above `TC_MC`. `mean_within_table`
+  therefore carries the ranking statistic; the pooled table stays as a report.
+* **Transform.** Bits grow with the log of residual variance, so temporal metrics
+  correlate better against `log(bits)`: `PCC_log` beats `PCC` for every temporal
+  metric measured, by 0.15-0.25. `primary_stat` selects `PCC_log` for temporal
+  metrics and plain `PCC` for spatial ones, where the two are equivalent.
 """
 from typing import Dict, List, Sequence
 
@@ -30,6 +43,35 @@ def classify(metric_col: str) -> str:
     if suffix in SPATIAL_SUFFIXES:
         return 'Spatial'
     return ''
+
+
+def suffix_of(metric_col: str) -> str:
+    """'full_TC_MC' -> 'TC_MC'; 'TC_MC' -> 'TC_MC'."""
+    return metric_col.split('_', 1)[1] if '_' in metric_col else metric_col
+
+
+def primary_stat(domain: str) -> str:
+    """Correlation statistic a domain is judged on: 'PCC_log' or 'PCC'.
+
+    Temporal metrics predict P-frame bits, which grow with the log of residual
+    variance, so the log transform is the correctly specified one. Spatial metrics
+    show no such gap and keep plain PCC.
+    """
+    return 'PCC_log' if domain == 'Temporal' else 'PCC'
+
+
+def companion_column(metric_col: str) -> str:
+    """EVCA column that must be read alongside `metric_col`, or '' if none.
+
+    `TC_MC` is intra-gated (`min(SC_MC, SC)`), so where the gate fires often it is
+    reporting spatial complexity rather than motion-compensation quality.
+    `intra_frac` is the fraction of blocks where the gate fired and is the only way
+    to tell the two cases apart, so it travels with every `TC_MC` figure.
+    """
+    if suffix_of(metric_col) != 'TC_MC':
+        return ''
+    profile = metric_col.rsplit('_TC_MC', 1)[0]
+    return f'{profile}_intra_frac' if profile else 'intra_frac'
 
 
 def frame_level_report(df_evca: pd.DataFrame, df_gt: pd.DataFrame, qps: Sequence[int],
@@ -119,13 +161,103 @@ def sequence_mean_report(df_evca: pd.DataFrame, df_gt_means: pd.DataFrame,
     return pd.DataFrame(records)
 
 
-def headline_table(df_frame: pd.DataFrame, metrics: Sequence[str] = None) -> pd.DataFrame:
-    """Compact pooled view: one row per (metric, QP) with PCC and its frame CI."""
-    pooled = df_frame[df_frame['scope'] == 'pooled']
+def headline_table(df_frame: pd.DataFrame, metrics: Sequence[str] = None,
+                   df_evca: pd.DataFrame = None) -> pd.DataFrame:
+    """Compact pooled view: one row per (metric, QP).
+
+    `primary` carries the domain's decision statistic (`PCC_log` for temporal,
+    `PCC` for spatial) with its bootstrap CI, so the leading number is the correctly
+    specified one; plain PCC is retained beside it for continuity with earlier runs.
+    When `df_evca` is supplied, `intra_frac` is attached to every `TC_MC` row.
+
+    This is a *reported* table, not a decision table — it is pooled over sequences.
+    Ranking decisions use `mean_within_table`.
+    """
+    pooled = df_frame[df_frame['scope'] == 'pooled'].copy()
     if metrics is not None:
         pooled = pooled[pooled['metric'].isin(metrics)]
-    return pooled[['Domain', 'QP', 'metric', 'n', 'PCC', 'PCC_lo', 'PCC_hi',
-                   'PCC_blk_lo', 'PCC_blk_hi', 'SRCC', 'PCC_log']].reset_index(drop=True)
+    if pooled.empty:
+        return pooled
+
+    stat = pooled['Domain'].map(primary_stat)
+    pooled['stat'] = stat
+    for out, suffix in (('primary', ''), ('primary_lo', '_lo'), ('primary_hi', '_hi')):
+        pooled[out] = [row[row['stat'] + suffix] for _, row in pooled.iterrows()]
+
+    cols = ['Domain', 'QP', 'metric', 'n', 'stat', 'primary', 'primary_lo',
+            'primary_hi', 'PCC', 'PCC_lo', 'PCC_hi', 'PCC_blk_lo', 'PCC_blk_hi', 'SRCC']
+    if df_evca is not None:
+        pooled['intra_frac'] = pooled['metric'].map(
+            lambda m: _companion_mean(df_evca, m))
+        if pooled['intra_frac'].notna().any():
+            cols.append('intra_frac')
+        else:
+            pooled = pooled.drop(columns='intra_frac')
+    return pooled[cols].reset_index(drop=True)
+
+
+def _companion_mean(df_evca: pd.DataFrame, metric_col: str) -> float:
+    """Corpus mean of `metric_col`'s companion column over frames >= 1, or NaN."""
+    companion = companion_column(metric_col)
+    if not companion or companion not in df_evca.columns:
+        return float('nan')
+    vals = df_evca.loc[df_evca['frame_idx'] >= 1, companion]
+    return float(vals.mean()) if len(vals) else float('nan')
+
+
+def mean_within_table(df_frame: pd.DataFrame, metrics: Sequence[str] = None) -> pd.DataFrame:
+    """Mean within-sequence correlation per (metric, QP) — the decision statistic.
+
+    Averages the per-sequence rows of `frame_level_report`, which removes the
+    between-sequence term that dominates the pooled figure. `primary` is `PCC_log`
+    for temporal metrics and `PCC` for spatial ones; `primary_min`/`primary_max`
+    expose the spread across sequences, since a high mean built from one strong and
+    one negative sequence is not the same result as a uniformly moderate one.
+    """
+    per = df_frame[df_frame['scope'] != 'pooled']
+    if metrics is not None:
+        per = per[per['metric'].isin(metrics)]
+    if per.empty:
+        return pd.DataFrame(columns=['Domain', 'QP', 'metric', 'n_seq', 'stat',
+                                     'primary', 'primary_min', 'primary_max', 'PCC'])
+
+    records = []
+    for (domain, qp, metric), g in per.groupby(['Domain', 'QP', 'metric']):
+        stat = primary_stat(domain)
+        vals = g[stat].to_numpy(float)
+        vals = vals[np.isfinite(vals)]
+        if vals.size == 0:
+            continue
+        records.append({
+            'Domain': domain, 'QP': qp, 'metric': metric, 'n_seq': len(g),
+            'stat': stat, 'primary': float(vals.mean()),
+            'primary_min': float(vals.min()), 'primary_max': float(vals.max()),
+            'PCC': float(g['PCC'].mean()),
+        })
+    return pd.DataFrame(records).sort_values(['Domain', 'QP', 'metric']).reset_index(drop=True)
+
+
+def mc_health_table(df_evca: pd.DataFrame) -> pd.DataFrame:
+    """Per-sequence motion-search and intra-gate diagnostics, means over frames >= 1.
+
+    Reported beside every `TC_MC` figure: `intra_frac` says how much of `TC_MC` is
+    the intra fallback rather than motion compensation, and `MV_sat_frac` says how
+    much of `TC_SAD` is search failure rather than content complexity.
+    """
+    wanted = ['MV_sat_frac', 'mean_mv_mag', 'intra_frac']
+    cols = {}
+    for suffix in wanted:
+        hits = [c for c in df_evca.columns if suffix_of(c) == suffix]
+        if hits:
+            # Identical across profiles; prefer the richest one that carries it.
+            cols[suffix] = sorted(hits)[-1]
+    if not cols or 'seq_name' not in df_evca.columns:
+        return pd.DataFrame()
+    sub = df_evca[df_evca['frame_idx'] >= 1]
+    out = (sub.groupby('seq_name')[list(cols.values())].mean()
+           .rename(columns={v: k for k, v in cols.items()})
+           .reset_index().rename(columns={'seq_name': 'sequence'}))
+    return out.sort_values('sequence').reset_index(drop=True)
 
 
 def format_markdown(df: pd.DataFrame, floatfmt: str = '{:.4f}') -> str:

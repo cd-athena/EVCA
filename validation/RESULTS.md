@@ -505,7 +505,18 @@ Second, **the two gate settings rank differently depending on the statistic**: b
 gate rule (CI lower bound of pooled PCC) `gate none` edges ahead (0.6653 vs 0.6584),
 but by mean within-sequence PCC `gate intra` is clearly better (0.398 vs 0.366), and
 the pooled CIs overlap almost completely. No default is changed here (Phase 2 changes
-no defaults); the disagreement is carried into Gate 4, where the gate axis is decided.
+no defaults).
+
+> **Resolved.** This entry originally carried the gate disagreement forward to Gate 4.
+> The disagreement was an artefact of the ranking rule, not a real tie: the pooled CI
+> lower bound is dominated by between-sequence variance and was replaced (see
+> [Ranking rule change](#ranking-rule-change-implemented)). Under the revised rule
+> **both `gate intra` variants beat both `gate none` variants**, with the gate axis
+> separating variants roughly six times as strongly as the `mc` axis. `--gate intra`
+> stays the default and the Gate 4 deferral is closed — see
+> [Gate 2 resolution](#gate-2-resolution--ranking-rule-change-and-the-gate-axis).
+> The first finding is unaffected: `dense_smooth` still beats `dense` at both gate
+> settings under the revised rule.
 
 ## Cross-machine re-baseline (macOS) — metric comparison
 
@@ -738,3 +749,124 @@ on synthetic ground truth, a true (4, 4) translation is estimated at magnitude 4
 against a true 5.657 while `MV_sat_frac` reports only 0.213, and a (2, 2) translation
 is estimated at 2.000 against 2.828 with `MV_sat_frac` at 0.000. The 39.4 % figure is
 therefore a floor on search failure, not an estimate of it.
+
+## Gate 2 resolution — ranking rule change and the gate axis
+
+Closes the gate-axis question that the Gate 2 verdict originally deferred to Gate 4,
+and records the ranking-rule change that resolved it.
+
+### Ranking rule change (implemented)
+
+The three changes proposed under *Consequences for Gates 3 and 4* are now in the code.
+Ranking behaviour changes from this point forward; no measurement is invalidated, since
+every statistic involved was already computed and stored — only which one decides.
+
+| # | Change | Where |
+|---|---|---|
+| 1 | Gate ranking key is the **mean within-sequence** correlation, not the pooled frame-level CI lower bound | `validation/run_ablation.py` (`RANK_KEYS`, default `within`); `report.mean_within_table` |
+| 2 | Temporal metrics are judged on **`PCC_log`**, spatial metrics on `PCC` | `report.primary_stat`, applied by both drivers |
+| 3 | **`intra_frac` travels with every `TC_MC` figure** | `report.companion_column`, `report.mc_health_table`; a column in the ablation matrix and the headline table |
+
+`--rank-by pooled_ci_lo` restores the superseded key so an older ablation's ordering can
+be reproduced for comparison. `run_benchmark.py` now writes `mean_within_correlations.csv`
+and `mc_health.csv` beside the existing outputs, and its ledger section leads with the
+within-sequence table; the pooled table is retained and labelled *reported, not decided on*.
+
+**Why the key changed.** Ranking the eight temporal metrics of the macOS re-baseline
+under both keys (values averaged over QPs 22/27/32/37):
+
+| rank | old key — pooled CI lower bound | new key — within-sequence `PCC_log` |
+|---|---|---|
+| 1 | `mean_mv_mag` 0.705 | `TC_MC` **0.329** |
+| 2 | `MV_sat_frac` 0.609 | `TC2` 0.320 |
+| 3 | `TC_MC` 0.511 | `TC` 0.317 |
+| 4 | `MVC` 0.488 | `TC_SAD` 0.133 |
+| 5 | `intra_frac` 0.442 | `MVC` 0.007 |
+| 6 | `TC2` 0.398 | `mean_mv_mag` -0.030 |
+| 7 | `TC_SAD` 0.393 | `intra_frac` -0.086 |
+| 8 | `TC` 0.359 | `MV_sat_frac` -0.134 |
+
+The old key placed the two motion-search *diagnostics* first and plain `TC` last. The
+new key places `TC_MC` first and sends all three diagnostics to the bottom with negative
+scores, which is the correct outcome: a quantity that cannot predict which frame costs
+more bits should not outrank one that can.
+
+### Ablation `mac-gate2-newrule` — 2026-08-24 11:59
+
+- Phase: Gate 2 resolution (gate axis under the within-sequence rule)
+- Commit: `5e10e09daea069f7d3bac2a94eb80fd17e2353d4`, working tree carrying the
+  ranking-rule change in `validation/report.py`, `validation/run_ablation.py` and
+  `validation/run_benchmark.py`
+- Subset: **fast**, profile `full`, ranking metric `full_TC_MC` (temporal, judged on `PCC_log`)
+- Ranking key: `within_mean` (`--rank-by within`)
+- Axes: `mc` ∈ {dense_smooth, dense}; `gate` ∈ {intra, none}
+- Extra args: `(none)`
+- Sequences: YachtRide, ReadySteadyGo, HoneyBee, FoodMarket
+- Missing sequences (skipped): Bosphorus
+- Bootstrap: 1000 resamples, seed 12345
+- Results: `validation/results/mac-gate2-newrule_5e10e09d` (run with `--skip-ledger`;
+  this section is written by hand)
+
+Values averaged over QPs 22/27/32/37. `within_mean` is the ranking key; `within_min` is
+the worst single sequence; `intra_frac` is the fraction of blocks where the intra gate
+fired. Pooled columns are reported, not decided on.
+
+| variant | within_mean | within_min | within_PCC_mean | intra_frac | PCC_mean | PCC_lo_mean | SRCC_mean | fps |
+|---|---|---|---|---|---|---|---|---|
+| mc=dense_smooth gate=intra | 0.3292 | -0.3559 | 0.3426 | 0.3148 | 0.5644 | 0.5108 | 0.5552 | 30.1697 |
+| mc=dense gate=intra | 0.3207 | -0.2980 | 0.3333 | 0.3217 | 0.4877 | 0.4312 | 0.5242 | 40.3023 |
+| mc=dense_smooth gate=none | 0.2639 | -0.4499 | 0.2762 | 0.3148 | 0.5318 | 0.4757 | 0.5514 | 39.0244 |
+| mc=dense gate=none | 0.2480 | -0.3925 | 0.2593 | 0.3217 | 0.4576 | 0.3999 | 0.5284 | 33.2410 |
+
+#### Verdict — the gate axis is decided
+
+**`--gate intra` stays the default; the Gate 4 deferral is closed.** Both `gate intra`
+variants beat both `gate none` variants, so the ranking is separable by the gate axis
+alone. Marginal effects:
+
+| axis | separation in `within_mean` |
+|---|---|
+| `gate intra` vs `gate none` | **+0.069** |
+| `mc dense_smooth` vs `mc dense` | +0.012 |
+
+The gate axis matters about six times as much as the compensation axis. That ordering is
+the reverse of what the pooled key reported at Gate 2, where the `mc` axis dominated and
+`gate none` came second overall.
+
+The mechanism is the one identified in the macOS metric comparison: `TC_MC` is
+intra-gated, so `min(SC_MC, SC)` converts a motion-compensation failure into a spatial
+complexity reading rather than into noise. On this corpus the gate fires on roughly 31 %
+of blocks overall and on 61.5 % of FoodMarket's, which is where the separation is earned.
+`gate none` also has the worse `within_min` at both `mc` settings (-0.45 / -0.39 against
+-0.36 / -0.30), so removing the gate hurts most on the sequences that are already worst.
+
+The first Gate 2 finding is unchanged: `dense_smooth` beats `dense` at both gate settings
+under the revised rule (+0.0086 with the gate on, +0.0159 with it off), so the
+Iteration-4 smoothing choice survives. `intra_frac` is essentially identical across the
+`mc` axis (0.3148 vs 0.3217), confirming that smoothing changes the quality of the
+compensated prediction rather than how often the gate rescues it.
+
+**The `fps` column is not usable on this machine.** `dense_smooth gate=intra` reads
+30.2 fps against 39.0 for `dense_smooth gate=none`, which is the same compensation work;
+the spread is MPS scheduling noise on a ~13-second measurement. Any throughput decision
+on the `mc` axis needs the CUDA machine.
+
+#### Caveat — `TC_MC`'s margin over the no-ME baseline is thin
+
+Change 2 narrows the case for `TC_MC` and this should be carried into Phase 3. Under
+within-sequence `PCC` the metric led plain `TC` by 0.025 (0.343 vs 0.318); under the
+correctly specified `PCC_log` the lead is 0.012 (0.329 vs 0.317), and `TC_MC` loses at
+two of four QPs:
+
+| QP | `TC` | `TC_MC` |
+|---|---|---|
+| 22 | **0.274** | 0.269 |
+| 27 | **0.373** | 0.316 |
+| 32 | 0.317 | **0.323** |
+| 37 | 0.306 | **0.410** |
+
+`TC_MC`, `TC2` and `TC` finish within 0.012 of one another. `TC_MC` remains the right
+optimisation target and its advantage is real at high QP, but it is thin against a
+baseline metric that requires no motion estimation at all, and the pooled table made that
+gap look far larger than it is. Phase 3 should size the expected gain from a better
+search against this margin rather than against the pooled figures recorded at Gate 1.

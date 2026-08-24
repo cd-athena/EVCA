@@ -46,7 +46,8 @@ def print_custom_help():
     print("-pm/--plot_metrics        Plot per frame metrics over time. Default is disabled")   
     print("-cc/--chroma_complexity   Enable Chroma (U,V) Complexity calculation.")
     print("-me/--motion_estimation   Enable Block-Based Motion Estimation (Block-ME)")
-    print('--heuristic               Search pattern geometry: "diamond" (13-point) or "square" (9-point).')
+    print('--heuristic               Search pattern: "diamond" (17-point, default), "diamond_dense" (21-point),')
+    print('                          "diamond_axis" (13-point Iteration-4 plus, no diagonals), "square" (9-point).')
     print('--loader                  Select the I/O pipeline: "standard" (sequential reads, low memory) or "optimized" (memory-mapped, high throughput but may cause OOM error).')
     print('--bit_depth               Bit depth of the raw YUV video. Default: 8')
     print('--profile                 ME Profile. "fast" outputs spatial TC_SAD/MVC. "full" executes the heavy DCT to output true TC_MC.')
@@ -74,7 +75,7 @@ PRESETS = {
     # integer MVs, Gaussian-smoothed dense warp, intra-gated residual energy.
     'iter4': {
         'me': 'pattern', 'me_subpel': 0, 'me_predictor': 'none', 'me_lambda': 0.0,
-        'me_merge': False, 'me_criterion': 'sad', 'heuristic': 'diamond',
+        'me_merge': False, 'me_criterion': 'sad', 'heuristic': 'diamond_axis',
         'mc': 'dense_smooth', 'mc_smooth': 'gauss', 'residual_dc': False,
         'gate': 'intra',
     },
@@ -106,7 +107,11 @@ def _add_arguments(parser: argparse.ArgumentParser, suppress: bool = False) -> N
     parser.add_argument('-pm', '--plot_metrics', '-plot_metrics', type=int, nargs='?', const=1, default=d(0))
     parser.add_argument('-cc', '--chroma_complexity', action='store_true', default=d(False))
     parser.add_argument('-me', '--motion_estimation', action='store_true', default=d(False))
-    parser.add_argument('--heuristic', type=str, default=d('diamond'), choices=['diamond', 'square'])
+    # Kept in sync with libs.temporal_engine.SEARCH_PATTERNS by
+    # tests/test_strategies.py::test_heuristic_choices_match_patterns; spelled out
+    # here so `--help` does not have to import torch.
+    parser.add_argument('--heuristic', type=str, default=d('diamond'),
+                        choices=['diamond', 'diamond_axis', 'diamond_dense', 'square'])
     parser.add_argument('--loader', type=str, default=d('standard'), choices=['standard', 'optimized'])
     parser.add_argument('--bit_depth', type=int, default=d(8), choices=[8, 10, 12, 16])
     parser.add_argument('--profile', type=str, default=d('fast'), choices=['fast', 'full'])
