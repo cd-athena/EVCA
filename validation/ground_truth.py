@@ -38,20 +38,27 @@ def load_config(config_path: Path = DEFAULT_CONFIG, sequence_root: Optional[str]
     """Loads sequences.json and resolves sequence paths.
 
     Root precedence: explicit argument > EVCA_SEQUENCE_ROOT env var > file value.
-    Sequences whose file is missing are dropped and reported in `missing`.
+    Sequences whose file is missing are dropped and reported in `missing`; entries
+    carrying `"enabled": false` are deliberately out of the corpus and reported in
+    `disabled` instead, so an oversized sequence can stay documented without being
+    mistaken for an accidentally absent one.
     """
     with open(config_path) as f:
         cfg = json.load(f)
     root = Path(sequence_root or os.environ.get('EVCA_SEQUENCE_ROOT')
                 or cfg.get('sequence_root', '.'))
-    resolved, missing = [], []
+    resolved, missing, disabled = [], [], []
     for seq in cfg['sequences']:
         p = Path(seq['path'])
         full = p if p.is_absolute() else root / p
         seq = dict(seq, full_path=str(full))
-        (resolved if full.exists() else missing).append(seq)
+        if not seq.get('enabled', True):
+            disabled.append(seq)
+        else:
+            (resolved if full.exists() else missing).append(seq)
     cfg['sequences'] = resolved
     cfg['missing'] = missing
+    cfg['disabled'] = disabled
     cfg['sequence_root'] = str(root)
     return cfg
 
