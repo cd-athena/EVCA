@@ -25,32 +25,50 @@ CORR_CSV = OUTPUT_DIR / "correlation_matrix.csv"
 
 QPS = [22, 27, 32, 37]
 
+# Base directory holding the raw YUV test sequences. Override with the
+# EVCA_SEQ_DIR environment variable if they live elsewhere.
+SEQ_DIR = Path(os.environ.get("EVCA_SEQ_DIR", "/home/albert/Desktop/test_sequences"))
+
 TEST_SEQUENCES = [
     {
-        "path": "/Users/albert/Desktop/athena/test_sequences/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+        "path": str(SEQ_DIR / "YachtRide_1920x1080_120fps_420_8bit_YUV.yuv"),
         "res": "1920x1080",
         "fps": 120,
         "pix_fmt": "yuv420",
         "bit_depth": 8,
     },
     {
-        "path": "/Users/albert/Desktop/athena/test_sequences/ReadySteadyGo_1920x1080_120fps_420_8bit_YUV.yuv",
+        "path": str(SEQ_DIR / "ReadySteadyGo_1920x1080_120fps_420_8bit_YUV.yuv"),
         "res": "1920x1080",
         "fps": 120,
         "pix_fmt": "yuv420",
         "bit_depth": 8,
     },
     {
-        "path": "/Users/albert/Desktop/athena/test_sequences/HoneyBee_1920x1080_120fps_420_8bit_YUV.yuv",
+        "path": str(SEQ_DIR / "HoneyBee_1920x1080_120fps_420_8bit_YUV.yuv"),
         "res": "1920x1080",
         "fps": 120,
         "pix_fmt": "yuv420",
         "bit_depth": 8,
     },
     {
-        "path": "/Users/albert/Desktop/athena/test_sequences/foodmarket_1920x1080_60fps_420_8bit.yuv",
+        "path": str(SEQ_DIR / "Bosphorus_1920x1080_120fps_420_8bit_YUV.yuv"),
         "res": "1920x1080",
-        "fps": 60,
+        "fps": 120,
+        "pix_fmt": "yuv420",
+        "bit_depth": 8,
+    },
+    {
+        "path": str(SEQ_DIR / "Beauty_1920x1080_120fps_420_8bit_YUV.yuv"),
+        "res": "1920x1080",
+        "fps": 120,
+        "pix_fmt": "yuv420",
+        "bit_depth": 8,
+    },
+    {
+        "path": str(SEQ_DIR / "ShakeNDry_1920x1080_120fps_420_8bit_YUV.yuv"),
+        "res": "1920x1080",
+        "fps": 120,
         "pix_fmt": "yuv420",
         "bit_depth": 8,
     },
@@ -162,7 +180,10 @@ def run_evca_extraction(seq: dict) -> dict:
     """
     seq_name = Path(seq["path"]).stem
     results = {}
-    
+
+    if not Path(seq["path"]).exists():
+        raise FileNotFoundError(f"Input sequence not found: {seq['path']}")
+
     profiles = {
         "baseline": [sys.executable, EVCA_MAIN_PATH, "-i", seq["path"], "-r", seq["res"], "-p", seq["pix_fmt"], "--bit_depth", str(seq["bit_depth"])],
         "fast": [sys.executable, EVCA_MAIN_PATH, "-i", seq["path"], "-r", seq["res"], "-p", seq["pix_fmt"], "--bit_depth", str(seq["bit_depth"]), "-me", "-cc", "-cf", "--profile", "fast"],
@@ -173,7 +194,12 @@ def run_evca_extraction(seq: dict) -> dict:
         csv_out = TEMP_DIR / f"{seq_name}_evca_{prof_name}.csv"
         cmd = base_cmd + ["-c", str(csv_out)]
         run_cmd(cmd)
-        
+
+        if not csv_out.exists():
+            raise RuntimeError(
+                f"EVCA did not produce {csv_out} for profile '{prof_name}'. "
+                f"Command: {' '.join(cmd)}"
+            )
         df = pd.read_csv(csv_out)
         # Exclude frame 0 (reference frame initialization)
         df_valid = df.iloc[1:]
