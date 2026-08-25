@@ -40,12 +40,8 @@ def test_unknown_shape_and_bad_offset_raise():
 def test_heuristic_choices_match_pattern_shapes():
     """main.py spells out the --heuristic choices to keep `--help` torch-free; this is
     the mechanism that stops them drifting from the real pattern builder."""
-    import argparse
-
-    from main import _add_arguments
-    parser = argparse.ArgumentParser(add_help=False)
-    _add_arguments(parser)
-    action = next(a for a in parser._actions if a.dest == 'heuristic')
+    from main import build_parser
+    action = next(a for a in build_parser()._actions if a.dest == 'heuristic')
     assert sorted(action.choices) == sorted(PATTERN_SHAPES)
 
 

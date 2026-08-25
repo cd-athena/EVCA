@@ -33,19 +33,19 @@ def run_cli(yuv, csv, *extra):
     return pd.read_csv(csv)
 
 
-def test_help_lists_only_real_flags():
-    """`--help` must not advertise a flag the parser no longer accepts."""
-    from main import _add_arguments
-    import argparse
-
+def test_help_is_generated_and_needs_no_torch():
+    """`--help` must render from the parser without loading torch.
+    """
     out = subprocess.run([sys.executable, 'main.py', '--help'],
                          capture_output=True, text=True, check=True).stdout
-    parser = argparse.ArgumentParser(add_help=False)
-    _add_arguments(parser)
-    known = {opt for action in parser._actions for opt in action.option_strings}
-    advertised = {tok.rstrip('.,') for line in out.splitlines()
-                  for tok in line.split() if tok.startswith('--')}
-    assert advertised - known - {'--help'} == set()
+    for expected in ('--me-offset', '--heuristic', 'motion estimation', 'examples:'):
+        assert expected in out, expected
+
+    trace = subprocess.run([sys.executable, '-X', 'importtime', 'main.py', '--help'],
+                           capture_output=True, text=True, check=True).stderr
+    imported = {line.rsplit('|', 1)[-1].strip() for line in trace.splitlines()}
+    assert not {m for m in imported if m == 'torch' or m.startswith('torch.')}, \
+        'main.py imported torch just to print --help'
 
 
 def test_evca_default(yuv, tmp_path):

@@ -35,11 +35,15 @@ python main.py -i input.yuv -r 1920x1080 -me --profile full -cc -cf -c ./csv/out
 
 ## Command Line Options
 
+`python main.py --help` prints this list, generated from the parser itself, with
+defaults and grouped by topic. The tables below mirror it.
+
 ### General
 
 | Flag | Default | Description |
 |---|---|---|
-| `-h`, `--help` | | Show the built-in help text and exit. |
+| `-h`, `--help` | | Show the generated help and exit. |
+| `--version` | | Print the version and exit. |
 | `-i`, `--input` | `test.yuv` | Raw YUV input file. |
 | `-d`, `--dir` | | Directory of `.yuv` files to process in turn. Takes precedence over `-i`. |
 | `-m`, `--method` | `EVCA` | `EVCA`, `VCA`, or `SITI`. |
