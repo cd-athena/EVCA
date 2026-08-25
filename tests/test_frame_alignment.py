@@ -41,8 +41,10 @@ def event_yuv(tmp_path_factory):
 @pytest.fixture(scope='module')
 def event_df(event_yuv, tmp_path_factory):
     out = tmp_path_factory.mktemp('align_csv') / 'events.csv'
+    # me_offset matches the pan so the search can reach it: this probe is about frame
+    # alignment, not about the reach of the default pattern.
     args = make_args(input=event_yuv, resolution=f'{WIDTH}x{HEIGHT}', csv=str(out),
-                     motion_estimation=True, profile='full')
+                     motion_estimation=True, profile='full', me_offset=PAN_PX)
     return run_evca(args)
 
 

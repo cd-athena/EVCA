@@ -11,8 +11,8 @@ from tests.conftest import make_args, run_evca, write_raw_yuv
 from validation.synthetic import gen_translation
 
 BASE_COLS = ['B', 'SC', 'TC', 'TC2']
-FAST_ME_COLS = BASE_COLS + ['MVC', 'TC_SAD', 'MV_sat_frac', 'mean_mv_mag']
-FULL_ME_COLS = BASE_COLS + ['MVC', 'TC_SAD', 'TC_MC', 'MV_sat_frac', 'mean_mv_mag', 'intra_frac']
+FAST_ME_COLS = BASE_COLS + ['MVC', 'TC_SAD', 'mean_mv_mag']
+FULL_ME_COLS = BASE_COLS + ['MVC', 'TC_SAD', 'TC_MC', 'mean_mv_mag', 'intra_frac']
 
 N_FRAMES, HEIGHT, WIDTH = 10, 96, 128
 
@@ -44,7 +44,7 @@ def test_fast_profile_columns(yuv8, tmp_path):
     args, df = _run(yuv8, tmp_path, 'fast', motion_estimation=True, profile='fast')
     assert list(df.columns) == FAST_ME_COLS
     assert len(df) == N_FRAMES
-    for col in ['MVC', 'TC_SAD', 'MV_sat_frac', 'mean_mv_mag']:
+    for col in ['MVC', 'TC_SAD', 'mean_mv_mag']:
         assert df.loc[0, col] == 0.0, f'frame-0 padding missing for {col}'
     # constant vx=2 translation: mean MV magnitude ~2 on frames >= 1
     assert abs(df.loc[2, 'mean_mv_mag'] - 2.0) < 0.5

@@ -56,131 +56,75 @@ class TemporalState:
         return self.current_frame - self.mc_frame
         
 
-# Search-pattern candidate offsets, in *half-resolution* units: the search runs on a
-# 2x2-pooled image, so a candidate (dy, dx) decodes to the full-resolution vector
-# (2*dy, 2*dx) and only even-valued MVs are representable.
-#
-# `diamond_axis` is the Iteration-4 reference pattern and is retained for ablation.
-# Despite the name it is a *plus*, not a diamond: every candidate lies on an axis, so
-# no diagonal motion is representable at all. Measured against synthetic ground truth,
-# a true (4, 4) translation was estimated as (4, 0) -- magnitude 4.00 against a true
-# 5.66 -- and `MV_sat_frac`, an L-infinity test, could not see the failure. The
-# diagonal-carrying patterns below cut mean MV error on a 12-direction sweep from
-# 2.053 px to 1.091 (`diamond`) and 0.911 (`diamond_dense`).
-SEARCH_PATTERNS = {
-    # 13-point plus, +/- 6 px full-res reach. Iteration-4 reference; no diagonals.
-    'diamond_axis': [
-        (0, 0),
-        (-1, 0), (1, 0), (0, -1), (0, 1),
-        (-2, 0), (2, 0), (0, -2), (0, 2),
-        (-3, 0), (3, 0), (0, -3), (0, 3),
-    ],
-    # 17-point: the plus plus the four outer diagonals, which make (+/-4, +/-4)
-    # full-res exactly representable. Same +/- 6 px L-infinity reach, so MV_sat_frac
-    # stays comparable with `diamond_axis`.
-    'diamond': [
-        (0, 0),
-        (-1, 0), (1, 0), (0, -1), (0, 1),
-        (-2, 0), (2, 0), (0, -2), (0, 2),
-        (-3, 0), (3, 0), (0, -3), (0, 3),
-        (-2, -2), (-2, 2), (2, -2), (2, 2),
-    ],
-    # 21-point: adds the inner diagonals, making (+/-2, +/-2) full-res representable
-    # as well. Lowest MV error of the three; costs four more candidates.
-    'diamond_dense': [
-        (0, 0),
-        (-1, 0), (1, 0), (0, -1), (0, 1),
-        (-1, -1), (-1, 1), (1, -1), (1, 1),
-        (-2, 0), (2, 0), (0, -2), (0, 2),
-        (-2, -2), (-2, 2), (2, -2), (2, 2),
-        (-3, 0), (3, 0), (0, -3), (0, 3),
-    ],
-    # 9-point sparse square, radius 2 at half-res -> +/- 4 px full-res.
-    # NOTE: eight of its nine candidates sit at L-infinity == the pattern's max reach,
-    # so `MV_sat_frac` reads ~1.0 by construction and carries no information here.
-    'square': [
-        (0, 0),
-        (-2, 0), (2, 0), (0, -2), (0, 2),    # Cardinal directions
-        (-2, -2), (-2, 2), (2, -2), (2, 2),  # The Diagonals
-    ],
-}
+PATTERN_SHAPES = ('diamond', 'square')
+
+
+def search_pattern(shape: str, offset: int) -> list:
+    """The five candidate (dy, dx) offsets of a static search pattern, in pixels.
+
+    Every pattern is the collocated block plus four neighbours at `offset` pixels:
+    `diamond` puts them on the axes, `square` on the diagonals. The search runs at
+    full resolution, so these are literal pixel offsets and every integer motion
+    vector the pattern can express is exactly representable.
+    """
+    if offset < 1:
+        raise ValueError(f'search-pattern offset must be >= 1, got {offset}')
+    r = offset
+    if shape == 'diamond':
+        return [(0, 0), (-r, 0), (r, 0), (0, -r), (0, r)]
+    if shape == 'square':
+        return [(0, 0), (-r, -r), (-r, r), (r, -r), (r, r)]
+    raise ValueError(f'unknown search pattern: {shape!r}; choose from {PATTERN_SHAPES}')
 
 
 class SparsePatternBlockMatcher(nn.Module):
+    """Five-point full-resolution block matcher.
+
+    Scores the collocated block and four neighbours at +/- `offset` pixels with SAD and
+    keeps the cheapest per block, giving a fixed O(1) search cost. Searching at full
+    resolution (rather than on a 2x2-pooled image) costs 4x per candidate but makes odd
+    motion vectors representable and matches on unfiltered pixels; with only five
+    candidates the total is comparable to a denser half-resolution search.
     """
-    Sparse Pattern Block Matcher (The 'Fixed Diamond').
-    Evaluates a static, deterministic pattern of motion vectors to achieve
-    fast O(1) search complexity while preserving highly accurate heuristics.
-    """
-    def __init__(self, block_size: int = 32, heuristic: str = 'diamond', dilation: int = 1):
+
+    def __init__(self, block_size: int = 32, heuristic: str = 'diamond', offset: int = 2):
         super().__init__()
         self.bs = block_size
-        self.bs_c = block_size // 2     # coarse block size
-
-        if heuristic not in SEARCH_PATTERNS:
-            raise ValueError(f"unknown heuristic pattern: {heuristic}")
-        base_pattern = SEARCH_PATTERNS[heuristic]
-
-        # 1.c apply resolution-aware dilation: multiply offsets by dilation factor to 
-        # stretch the search horizon for large resolutions
-        self.pattern = [(dy * dilation, dx * dilation) for dy, dx in base_pattern]
+        self.pattern = search_pattern(heuristic, offset)
         self.num_cands = len(self.pattern)
-        
-        # Calculate padding dynamically based on the pattern's maximum reach
-        self.R_c = max(max(abs(dy), abs(dx)) for dy, dx in self.pattern)
+        # The pattern's L-infinity reach, which is both the padding the reference needs
+        # and the largest motion vector this search can report.
+        self.reach = offset
 
-        # Maximum decodable full-resolution MV magnitude (L-inf). A block whose MV
-        # reaches this bound sits on the search-pattern boundary (used for MV_sat_frac).
-        self.max_reach_fullres = float(2 * self.R_c)
-
-        # 2. Vectorized O(1) Lookup Table for Coordinate Decoding
-        # The search runs at half resolution (2x2 avg_pool), so we pre-multiply by 2.0
-        # to decode candidate offsets into full-resolution (even-valued) vectors.
-        # register_buffer ensures this tensor automatically moves to MPS/CUDA alongside the model.
-        lookup_tensor = torch.tensor(self.pattern, dtype=torch.float32) * 2.0
-        self.register_buffer('pattern_lookup', lookup_tensor)
+        # Vectorized O(1) lookup table for coordinate decoding. register_buffer ensures
+        # this tensor moves to CUDA/MPS alongside the module.
+        self.register_buffer('pattern_lookup',
+                             torch.tensor(self.pattern, dtype=torch.float32))
 
     def forward(self, curr_frame: torch.Tensor, ref_frame: torch.Tensor):
         B, C, H, W = curr_frame.shape
         H_b, W_b = H // self.bs, W // self.bs
+        R = self.reach
 
-        # =====================================================================
-        # COARSE SEARCH: Shift-and-Pool over the Fixed Diamond
-        # =====================================================================
-        curr_c = F.avg_pool2d(curr_frame, kernel_size=2, stride=2)
-        ref_c = F.avg_pool2d(ref_frame, kernel_size=2, stride=2)
-        
-        ref_c_padded = F.pad(ref_c, (self.R_c, self.R_c, self.R_c, self.R_c), mode='replicate')
-
-        # Pre-allocate SAD tensor for exactly 13 candidates instead of 49
-        sads = torch.empty((B, self.num_cands, H_b, W_b), device=curr_frame.device, dtype=curr_frame.dtype)
+        ref_padded = F.pad(ref_frame, (R, R, R, R), mode='replicate')
+        sads = torch.empty((B, self.num_cands, H_b, W_b),
+                           device=curr_frame.device, dtype=curr_frame.dtype)
 
         for idx, (dy, dx) in enumerate(self.pattern):
-            # Zero-copy tensor slice
-            ref_slice = ref_c_padded[:, :, self.R_c+dy : (H//2)+self.R_c+dy, self.R_c+dx : (W//2)+self.R_c+dx]
-            
-            # Hardware-accelerated block SAD
-            abs_diff = torch.abs(curr_c - ref_slice)
-            sads[:, idx] = F.avg_pool2d(abs_diff, kernel_size=self.bs_c, stride=self.bs_c).squeeze(1)
+            # Zero-copy tensor slice, then a hardware-accelerated block SAD.
+            ref_slice = ref_padded[:, :, R + dy:H + R + dy, R + dx:W + R + dx]
+            abs_diff = torch.abs(curr_frame - ref_slice)
+            sads[:, idx] = F.avg_pool2d(abs_diff, self.bs, self.bs).squeeze(1)
 
-        # Global Hardware Reduction
-        # best_idx is a 3D tensor of shape [B, H_b, W_b] containing values 0-12
-        best_sad, best_idx = torch.min(sads, dim=1) 
+        # Global hardware reduction: best_idx is [B, H_b, W_b] indexing the pattern.
+        best_sad, best_idx = torch.min(sads, dim=1)
 
-        # =====================================================================
-        # COORDINATE DECODING: Vectorized Advanced Indexing
-        # =====================================================================
-        # We pass the entire batch's index tensor into the 2D lookup table. 
-        # PyTorch advanced indexing automatically expands this into shape [B, H_b, W_b, 2]
-        decoded_mvs = self.pattern_lookup[best_idx]
-        
-        # Split the vectors and reshape to [B, 1, H_b, W_b] to match EVCA plugin formats
-        best_dy = decoded_mvs[..., 0].unsqueeze(1)
-        best_dx = decoded_mvs[..., 1].unsqueeze(1)
-        
-        best_mv = torch.cat([best_dy, best_dx], dim=1)
+        # Advanced indexing expands the index tensor into [B, H_b, W_b, 2]; permute to
+        # the [B, 2, H_b, W_b] (dy, dx) layout the metrics and compensators expect.
+        mvs = self.pattern_lookup[best_idx].permute(0, 3, 1, 2).contiguous()
 
-        return best_mv, best_sad.unsqueeze(1)
+        return mvs, best_sad.unsqueeze(1)
+
 
 class EVCATemporalMetric(nn.Module):
     """Abstract Base Class for Temporal Plugins."""

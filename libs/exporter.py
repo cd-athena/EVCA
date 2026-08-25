@@ -41,7 +41,7 @@ def export_features_to_csv(args: argparse.Namespace, file: str, out_frames: list
                            out_frames_u: list = None, out_frames_v: list = None,
                            out_mvc: list = None, out_tcsad: list = None,
                            out_tcmc: list = None,
-                           out_satfrac: list = None, out_meanmv: list = None,
+                           out_meanmv: list = None,
                            out_intrafrac: list = None) -> str:
     """
     Exports the computed features into a CSV file based on the selected method.
@@ -65,10 +65,8 @@ def export_features_to_csv(args: argparse.Namespace, file: str, out_frames: list
             data['TC_SAD'] = out_tcsad
         if out_tcmc:
             data['TC_MC'] = out_tcmc
-        # ME diagnostics (Phase 1): search saturation and mean MV magnitude,
-        # plus intra-gate fire rate in the full profile.
-        if out_satfrac:
-            data['MV_sat_frac'] = out_satfrac
+        # ME diagnostics: mean MV magnitude, plus the intra-gate fire rate in the
+        # full profile.
         if out_meanmv:
             data['mean_mv_mag'] = out_meanmv
         if out_intrafrac:

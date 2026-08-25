@@ -15,5 +15,4 @@ dependencies:
       - torch
       - torchvision
       - torchaudio
-      - torch-dct
       - pytorch-wavelets

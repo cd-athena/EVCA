@@ -19,35 +19,12 @@ from libs.temporal_engine import EVCATemporalEngine, MetricMVC, MetricsTCSAD, Sp
 from libs.motion_compensation import build_compensator
 
 
-def build_motion_estimator(args: argparse.Namespace, width: int):
-    """Constructs the motion estimator selected by the `--me*` flags.
-
-    Options accepted by the parser but not yet implemented raise here rather than
-    silently degrading to the default search, so an ablation can never report a
-    variant it did not actually run.
-    """
-    unimplemented = []
-    if args.me_subpel != 0:
-        unimplemented.append(f'--me-subpel {args.me_subpel}')
-    if args.me_predictor != 'none':
-        unimplemented.append(f'--me-predictor {args.me_predictor}')
-    if args.me_lambda != 0.0:
-        unimplemented.append(f'--me-lambda {args.me_lambda}')
-    if args.me_merge:
-        unimplemented.append('--me-merge')
-    if args.me_criterion != 'sad':
-        unimplemented.append(f'--me-criterion {args.me_criterion}')
-    if args.me == 'hierarchical':
-        unimplemented.append('--me hierarchical')
-    if unimplemented:
-        raise NotImplementedError(
-            'not implemented yet (Phase 3): ' + ', '.join(unimplemented))
-
-    dilation_factor = max(1, width // 1920)  # 1080p has multiplier of 1
+def build_motion_estimator(args: argparse.Namespace):
+    """Constructs the five-point block matcher selected by --heuristic/--me-offset."""
     return SparsePatternBlockMatcher(
         block_size=args.block_size,
         heuristic=args.heuristic,
-        dilation=dilation_factor,
+        offset=args.me_offset,
     )
 
 
@@ -100,12 +77,11 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_mvc = []
         out_tcsad = []
         out_tcmc = []
-        out_satfrac = []
         out_meanmv = []
         out_intrafrac = []
         
         if args.motion_estimation:
-            me_module = build_motion_estimator(args, width).to(device)
+            me_module = build_motion_estimator(args).to(device)
             metrics = {
                 'mvc': MetricMVC().to(device),
                 'tc_sad': MetricsTCSAD().to(device)
@@ -171,6 +147,10 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             
             # Motion Estimation
             if temporal_engine is not None and Y_frames.shape[0] > 0:
+                # The first GOP has no predecessor, so its first frame cannot be a ME
+                # target: the ME output is one frame shorter than the GOP and every
+                # per-block stream compared against it must drop the same leading frame.
+                me_pad = 1 if last_Y_frame is None else 0
                 if last_Y_frame is not None:
                     me_input_frames = torch.cat([last_Y_frame, Y_frames], dim=0)
                 else:
@@ -185,12 +165,12 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                     mvc_batch = me_results['mvc'].ravel()
                     tcsad_batch = me_results['tc_sad'].ravel()
 
-                    # Per-frame ME diagnostics: fraction of blocks whose MV sits on the
-                    # search-pattern boundary, and mean MV magnitude.
+                    # Per-frame ME diagnostic: mean MV magnitude. With a five-point
+                    # pattern every non-centre candidate sits at the pattern's reach, so
+                    # this is `offset` (or `offset * sqrt(2)` for the square) times the
+                    # fraction of blocks that did not choose the collocated block.
                     mv_mag = torch.sqrt(me_state.mvs[:, 0]**2 + me_state.mvs[:, 1]**2)
                     meanmv_batch = mv_mag.mean(dim=[1, 2])
-                    mv_absmax = me_state.mvs.abs().amax(dim=1)
-                    satfrac_batch = (mv_absmax >= me_module.max_reach_fullres - 1e-6).float().mean(dim=[1, 2])
 
                     if need_block_info:
                         sad_map_flat = me_state.sad_map.squeeze(1).reshape(current_frames.shape[0], -1)
@@ -211,14 +191,21 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         # extract high-frequency weighted energy (mimicks EVCA)
                         _, SC_blocks_mc, _ = feature_extraction(args, DTs_mc, current_frames.shape[0], device, residual_weights_dct)
 
-                        # intra-mode energy gating
-                        curr_SC_blocks = SC_blocks[1:] if f == 0 else SC_blocks
-                        # Diagnostic: fraction of blocks where the intra gate fires
-                        # (residual energy >= plain SC before the min). Reported even
-                        # with --gate none, where it measures how often MC lost to intra.
+                        # Intra-mode energy gate. A real encoder codes a block inter or
+                        # intra, whichever is cheaper, so the residual energy is capped at
+                        # the block's own intra energy; without the cap an occlusion or a
+                        # scene cut reports far more energy than an encoder would spend.
+                        # `me_pad` drops the same leading frame the ME input dropped, so
+                        # the two block streams stay aligned.
+                        # Note: with --residual-dc the residual side carries the DC
+                        # coefficient while the intra side never does, so the two sides of
+                        # the min are then weighted differently.
+                        curr_SC_blocks = SC_blocks[me_pad:]
+                        # Diagnostic: fraction of blocks where the gate binds, i.e. where
+                        # motion compensation lost to intra. The higher it is, the more
+                        # TC_MC reports spatial complexity rather than motion.
                         intrafrac_batch = (SC_blocks_mc >= curr_SC_blocks).float().mean(dim=1).ravel()
-                        if args.gate == 'intra':
-                            SC_blocks_mc = torch.minimum(SC_blocks_mc, curr_SC_blocks)
+                        SC_blocks_mc = torch.minimum(SC_blocks_mc, curr_SC_blocks)
                         
                         if need_block_info:
                             out_blocks_tcmc.append(SC_blocks_mc.detach())
@@ -231,7 +218,6 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         zero = torch.zeros(1, device=mvc_batch.device, dtype=mvc_batch.dtype)
                         mvc_batch = torch.cat([zero, mvc_batch])
                         tcsad_batch = torch.cat([zero, tcsad_batch])
-                        satfrac_batch = torch.cat([zero, satfrac_batch])
                         meanmv_batch = torch.cat([zero, meanmv_batch])
                         if tcmc_batch is not None:
                             tcmc_batch = torch.cat([zero, tcmc_batch])
@@ -239,7 +225,6 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                             intrafrac_batch = torch.cat([zero, intrafrac_batch])
                     out_mvc.append(mvc_batch)
                     out_tcsad.append(tcsad_batch)
-                    out_satfrac.append(satfrac_batch)
                     out_meanmv.append(meanmv_batch)
                     if tcmc_batch is not None:
                         out_tcmc.append(tcmc_batch)
@@ -307,7 +292,6 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
         out_mvc = gather(out_mvc)
         out_tcsad = gather(out_tcsad)
         out_tcmc = gather(out_tcmc)
-        out_satfrac = gather(out_satfrac)
         out_meanmv = gather(out_meanmv)
         out_intrafrac = gather(out_intrafrac)
 
@@ -339,7 +323,6 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
             out_mvc=out_mvc if args.motion_estimation else None,
             out_tcsad=out_tcsad if args.motion_estimation else None,
             out_tcmc=out_tcmc if (args.motion_estimation and args.profile == 'full') else None,
-            out_satfrac=out_satfrac if args.motion_estimation else None,
             out_meanmv=out_meanmv if args.motion_estimation else None,
             out_intrafrac=out_intrafrac if (args.motion_estimation and args.profile == 'full') else None
         )

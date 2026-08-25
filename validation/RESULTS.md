@@ -4,6 +4,18 @@ Running record of every benchmark run, default-behavior change, and gate decisio
 Convention: one section per phase; benchmark rows record phase, commit SHA, CLI flags,
 device, subset, fps, and correlation tables (or a pointer to the results directory).
 
+> **Historical, from here down.** Everything below predates the simplification pass and
+> was produced by the retired harness (`run_benchmark.py`, `run_ablation.py`,
+> `report.py`, `stats.py`). Those drivers, their bootstrap CIs, the within-vs-pooled
+> scope rule and the `PCC_log` transform no longer exist; neither do the flags several
+> sections ablate (`--gate`, `--preset`, `--dct-impl`, the `diamond_axis` /
+> `diamond_dense` search patterns, the six unimplemented `--me-*` flags). The findings
+> that shaped current defaults are still load-bearing — in particular *Gate 2
+> resolution*, which is why the intra gate is now unconditional — but the numbers were
+> measured against a half-resolution 17-point search and do not describe today's code.
+> Current measurements come from `validation/correlate.py`, which is appended to this
+> file by hand.
+
 ## Environment
 
 - Machine: Linux (CachyOS), NVIDIA GeForce RTX 5060 Ti, conda env `EVCA-gpu`

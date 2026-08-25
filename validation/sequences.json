@@ -1,65 +1,37 @@
 {
-  "_comment": "Test sequence configuration for the EVCA2 validation harness. Paths are resolved relative to 'sequence_root' unless absolute. Override the root with the EVCA_SEQUENCE_ROOT environment variable or --sequence-root. Set \"enabled\": false to keep an entry documented but out of the default corpus (the 4K sequences are large and slow; flip the flag to include them). Sequences whose file is absent are dropped automatically and recorded in the ledger under 'Missing sequences'.",
-  "sequence_root": "/Users/albert/Desktop/athena/test_sequences",
-  "qps": [22, 27, 32, 37],
+  "_comment": "Test sequences for validation/correlate.py. Paths resolve against 'sequence_root' unless absolute; override with EVCA_SEQUENCE_ROOT or --sequence-root. Sequences whose file is absent are skipped with a warning.",
+  "sequence_root": "/home/albert/Desktop/test_sequences",
+  "qp": 22,
   "sequences": [
     {
-      "name": "YachtRide",
-      "path": "YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
-      "res": "1920x1080",
-      "fps": 120,
-      "pix_fmt": "yuv420",
-      "bit_depth": 8
-    },
-    {
-      "name": "ReadySteadyGo",
-      "path": "ReadySteadyGo_1920x1080_120fps_420_8bit_YUV.yuv",
-      "res": "1920x1080",
-      "fps": 120,
-      "pix_fmt": "yuv420",
-      "bit_depth": 8
-    },
-    {
-      "name": "HoneyBee",
-      "path": "HoneyBee_1920x1080_120fps_420_8bit_YUV.yuv",
-      "res": "1920x1080",
-      "fps": 120,
-      "pix_fmt": "yuv420",
-      "bit_depth": 8
-    },
-    {
-      "name": "FoodMarket",
-      "path": "foodmarket_1920x1080_60fps_420_8bit.yuv",
-      "res": "1920x1080",
-      "fps": 60,
-      "pix_fmt": "yuv420",
-      "bit_depth": 8
+      "name": "Beauty",
+      "path": "Beauty_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
     },
     {
       "name": "Bosphorus",
       "path": "Bosphorus_1920x1080_120fps_420_8bit_YUV.yuv",
-      "res": "1920x1080",
-      "fps": 120,
-      "pix_fmt": "yuv420",
-      "bit_depth": 8
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
     },
     {
-      "name": "ReadySetGo4K",
-      "path": "ReadySetGo_3840x2160_120fps_420_10bit_YUV.yuv",
-      "res": "3840x2160",
-      "fps": 120,
-      "pix_fmt": "yuv420",
-      "bit_depth": 10,
-      "enabled": false
+      "name": "HoneyBee",
+      "path": "HoneyBee_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
     },
     {
-      "name": "FoodMarket4K",
-      "path": "foodmarket_4096x2160_60fps_420_8bit.yuv",
-      "res": "4096x2160",
-      "fps": 60,
-      "pix_fmt": "yuv420",
-      "bit_depth": 8,
-      "enabled": false
+      "name": "ReadySteadyGo",
+      "path": "ReadySteadyGo_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
+    },
+    {
+      "name": "ShakeNDry",
+      "path": "ShakeNDry_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
+    },
+    {
+      "name": "YachtRide",
+      "path": "YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
     }
   ]
 }
