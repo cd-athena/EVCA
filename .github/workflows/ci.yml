@@ -35,19 +35,10 @@ jobs:
         # 3. Clean requirements.txt so we don't have hardcoded conflicts.
         grep -vE '^(torch|torchvision|torchaudio|typing_extensions|typing-extensions|sympy)([=><!~]|$)' requirements.txt > req_clean.txt
 
-        # Install the rest of the EVCA requirements
+        # Install the rest of the EVCA requirements, plus the test runner
         pip install -r req_clean.txt -c constraints.txt
+        pip install pytest
 
-    - name: Execute Unit & CLI Integration Tests
+    - name: Run test suite
       run: |
-        python -m unittest discover -s tests -p "test_*.py" -v
-
-    - name: Upload Test Artifacts (CSVs and PNGs)
-      if: always() 
-      uses: actions/upload-artifact@v4
-      with:
-        name: evca-test-artifacts
-        path: |
-          csv/
-          png/
-        retention-days: 7
+        python -m pytest tests/ -v

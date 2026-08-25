@@ -6,6 +6,7 @@ channels:
 dependencies:
   - numpy
   - pandas
+  - scipy
   - python==3.11.7
   - pytorch
   - torchvision
