@@ -8,3 +8,4 @@ tests/__pycache__
 __pycache__/
 validation/results/
 validation/__pycache__/*
+validation/gt_cache/*

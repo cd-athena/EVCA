@@ -80,3 +80,15 @@ def chroma_energy_extraction(args: argparse.Namespace,
     
     # Return independent metrics
     return sc_blocks_u, sc_blocks_v
+
+def weighted_block_energy(block_transform: torch.Tensor, weights: torch.Tensor,
+                          nframes: int) -> torch.Tensor:
+    """Mean absolute weighted coefficient per block, as `feature_extraction` computes SC.
+
+    Takes a flat block stack [nframes * blocks, n, n] and returns [nframes, blocks].
+    Unlike `feature_extraction` this derives the block count from the tensor rather than
+    from `args.resolution`, so it also serves the pooled residual path, where the block
+    size and the frame dimensions are both divided by the pooling factor.
+    """
+    energy = torch.abs(block_transform * weights.unsqueeze(0))
+    return energy.mean(dim=[1, 2]).view(nframes, -1)

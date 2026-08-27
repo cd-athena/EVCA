@@ -7,7 +7,8 @@ import numpy as np
 import torch
 from pytorch_wavelets import DWTForward
 
-from libs.feature_extraction import feature_extraction, temporal_feature_extraction, chroma_energy_extraction
+from libs.feature_extraction import (feature_extraction, temporal_feature_extraction,
+                                     chroma_energy_extraction, weighted_block_energy)
 from libs.plot_block_info_EVCA import plot_block_info_EVCA
 from libs.write_block_info import write_block_info
 from libs.plot_frame_metrics_EVCA import plot_frame_metrics_EVCA
@@ -15,16 +16,30 @@ from libs.weight_dct import weight_dct
 from libs.video_loader import load_gop, load_gop_optimized
 from libs.transforms import apply_luma_transform, apply_chroma_transform
 from libs.exporter import export_features_to_csv
-from libs.temporal_engine import EVCATemporalEngine, MetricMVC, MetricsTCSAD, SparsePatternBlockMatcher
+from libs.temporal_engine import (EVCATemporalEngine, MetricMVC, MetricsTCSAD,
+                                  PatternBlockMatcher)
 from libs.motion_compensation import build_compensator
 
 
+def resolve_pools(args: argparse.Namespace):
+    """(me_pool, residual_pool) for this run.
+
+    `--me-pool` defaults to `--temporal-pool`, so pooling the whole temporal path takes
+    one flag; setting it explicitly decouples the search from the residual path.
+    """
+    residual_pool = getattr(args, 'temporal_pool', 1) or 1
+    me_pool = getattr(args, 'me_pool', None)
+    return (residual_pool if me_pool is None else me_pool), residual_pool
+
+
 def build_motion_estimator(args: argparse.Namespace):
-    """Constructs the five-point block matcher selected by --heuristic/--me-offset."""
-    return SparsePatternBlockMatcher(
+    """Constructs the block matcher selected by --heuristic/--me-offset/--me-pool."""
+    me_pool, _ = resolve_pools(args)
+    return PatternBlockMatcher(
         block_size=args.block_size,
         heuristic=args.heuristic,
         offset=args.me_offset,
+        pool=me_pool,
     )
 
 
@@ -47,6 +62,21 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
     # real rate, unlike an intra block's DC which is just average brightness.
     residual_weights_dct = (weight_dct(args, device, keep_dc=True)
                             if getattr(args, 'residual_dc', False) else cached_weights_dct)
+
+    # The residual path may run box-filtered down by `residual_pool`, on blocks of
+    # block_size/residual_pool. EVCA's weighting is written in normalised frequency --
+    # exp(((i*j)/(N*N))^2 - 1) -- so the smaller matrix is the same weighting for the
+    # smaller block rather than an arbitrary rescale.
+    me_pool, residual_pool = resolve_pools(args)
+    residual_bs = args.block_size // residual_pool
+    if residual_pool > 1:
+        if args.transform != 'DCT':
+            raise ValueError(f"--temporal-pool {residual_pool} requires --transform DCT; "
+                             f"'{args.transform}' is defined for the full-size block only")
+        pooled_residual_weights = weight_dct(args, device, size=residual_bs,
+                                             keep_dc=getattr(args, 'residual_dc', False))
+        # The intra side of the gate keeps SC's DC-zeroed convention.
+        pooled_intra_weights = weight_dct(args, device, size=residual_bs)
 
     for file in input_list:
         number_of_frames = int(Path(file).stat().st_size // (width * height * pix_size))
@@ -87,7 +117,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                 'tc_sad': MetricsTCSAD().to(device)
             }
             compensator = build_compensator(args.mc, args.mc_smooth).to(device)
-            temporal_engine = EVCATemporalEngine(me_module, metrics, compensator).to(device)
+            temporal_engine = EVCATemporalEngine(me_module, metrics, compensator,
+                                                 residual_pool=residual_pool).to(device)
             # if hasattr(torch, "compile"):
             #     temporal_engine = torch.compile(temporal_engine, mode="reduce-overhead")
         last_Y_frame = None
@@ -160,7 +191,8 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                     current_frames = me_input_frames[1:]
                     ref_frames = me_input_frames[:-1]
                     # batched ME and metrics
-                    me_results, me_state = temporal_engine(current_frames, ref_frames)
+                    me_results, me_state = temporal_engine(current_frames, ref_frames,
+                                                          frame_stack=me_input_frames)
                     # Keep results on-device; a single host sync happens after the GOP loop.
                     mvc_batch = me_results['mvc'].ravel()
                     tcsad_batch = me_results['tc_sad'].ravel()
@@ -185,11 +217,15 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         # extract spatial residual dynamically
                         # Spatial residual tensor of shape: [B, 1, H_blocks, W_blocks, 32, 32]
                         residual_tensor = me_state.residual
-                        # reshape 6D block tensor into 3D block stack: [Total_32x32_Blocks, 32, 32]
-                        residual_flat = residual_tensor.view(-1, args.block_size, args.block_size)
+                        # reshape 6D block tensor into 3D block stack: [Total_Blocks, n, n]
+                        residual_flat = residual_tensor.view(-1, residual_bs, residual_bs)
                         DTs_mc = apply_luma_transform(args, residual_flat, dwt_model=dwt)
                         # extract high-frequency weighted energy (mimicks EVCA)
-                        _, SC_blocks_mc, _ = feature_extraction(args, DTs_mc, current_frames.shape[0], device, residual_weights_dct)
+                        n_me_frames = current_frames.shape[0]
+                        if residual_pool == 1:
+                            _, SC_blocks_mc, _ = feature_extraction(args, DTs_mc, n_me_frames, device, residual_weights_dct)
+                        else:
+                            SC_blocks_mc = weighted_block_energy(DTs_mc, pooled_residual_weights, n_me_frames)
 
                         # Intra-mode energy gate. A real encoder codes a block inter or
                         # intra, whichever is cheaper, so the residual energy is capped at
@@ -200,7 +236,20 @@ def EVCA(args: argparse.Namespace, input_list, device) -> None:
                         # Note: with --residual-dc the residual side carries the DC
                         # coefficient while the intra side never does, so the two sides of
                         # the min are then weighted differently.
-                        curr_SC_blocks = SC_blocks[me_pad:]
+                        if residual_pool == 1:
+                            curr_SC_blocks = SC_blocks[me_pad:]
+                        else:
+                            # Both sides of the gate must share a scale, so the intra
+                            # energy is recomputed on the same pooled blocks rather than
+                            # rescaled from the full-resolution SC (which stays exported
+                            # unchanged at full resolution).
+                            intra_blocks = (me_state.current_frame
+                                            .unfold(2, residual_bs, residual_bs)
+                                            .unfold(3, residual_bs, residual_bs)
+                                            .contiguous().view(-1, residual_bs, residual_bs))
+                            curr_SC_blocks = weighted_block_energy(
+                                apply_luma_transform(args, intra_blocks, dwt_model=dwt),
+                                pooled_intra_weights, n_me_frames)
                         # Diagnostic: fraction of blocks where the gate binds, i.e. where
                         # motion compensation lost to intra. The higher it is, the more
                         # TC_MC reports spatial complexity rather than motion.

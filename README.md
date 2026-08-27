@@ -69,14 +69,56 @@ defaults and grouped by topic. The tables below mirror it.
 
 ### Motion estimation
 
-The search evaluates five candidates per block: the collocated block plus four
-neighbours at `--me-offset` pixels. It runs at full resolution, so offsets are literal
-pixels and every motion vector the pattern can express is exact.
+The search scores candidates per block by SAD against whole-frame shifts of the
+reference: the collocated block plus four neighbours at `--me-offset` pixels, or the
+whole square with `--heuristic dense`. `--me-offset` is always denominated in
+full-resolution pixels, whatever grid the search runs on.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--heuristic` | `diamond` | `diamond` puts the four neighbours on the axes; `square` puts them on the diagonals. |
-| `--me-offset` | `2` | Neighbour offset in pixels (≥ 1). This is the search's entire reach: motion beyond it cannot be tracked. |
+| `--heuristic` | `diamond` | `diamond` puts four neighbours on the axes, `square` on the diagonals, `dense` fills the whole `(2r+1)²` square so reach and granularity are independent. |
+| `--me-offset` | `2` | Reach of the pattern in full-resolution pixels (≥ 1). Motion beyond it cannot be tracked. |
+| `--temporal-pool` | `1` | Box-filter the temporal path down by N before searching and before building the motion-compensated residual. |
+| `--me-pool` | *(= `--temporal-pool`)* | Pooling factor for the search alone; set it to decouple the search from the residual path. |
+
+### Temporal pooling
+
+`--temporal-pool N` runs the whole temporal path — search, motion compensation,
+residual, transform and intra gate — on a luma plane box-filtered down by N. The
+spatial metrics (`B`, `SC`, `TC`, `TC2`) are untouched and stay full-resolution.
+
+Each step of N quarters the cost of every search candidate and of the compensation
+warp, and quantises motion vectors onto an N-pixel grid. `--me-offset` stays in source
+pixels, so a wider reach costs nothing extra: at `--temporal-pool 4` a `--me-offset 8`
+dense pattern covers ±8 px with the same 25 candidates that would cover ±2 px at full
+resolution.
+
+`--temporal-pool 1` (the default) reproduces full-resolution behaviour byte for byte.
+
+```bash
+# ~1.7x faster --profile full at 1080p, and 4K no longer exhausts a 16 GB card
+python main.py -i input.yuv -r 1920x1080 -me --profile full --temporal-pool 2 -c ./csv/out.csv
+```
+
+Pooling changes what the temporal metrics measure, so values are comparable within a
+pooling factor and not across factors:
+
+- `TC_MC` is the weighted DCT energy of a residual computed on `block_size / N` blocks,
+  so its scale drops with N. EVCA's weighting is written in normalised frequency,
+  `exp(((i·j)/(N·N))² − 1)`, so the smaller matrix is the same weighting for the smaller
+  block rather than an arbitrary rescale.
+- `TC_SAD` is scored in the search domain, where box filtering has already averaged
+  detail away, so it reads lower at higher `--me-pool`.
+- `MVC` and `mean_mv_mag` stay in full-resolution pixels, but the vectors they summarise
+  are quantised to the pooling grid.
+- `intra_frac` falls, because a search with more reach loses to intra less often.
+
+`--transform DCT_B` and `--transform DWT` are defined for the full-size block only and
+are rejected with `--temporal-pool > 1`. The residual block must stay at least 8×8, so
+`--temporal-pool 4` needs `--block_size 32`.
+
+`validation/bench_pooling.py` measures the correlation against x265 P-frame bits for
+each setting, so the trade-off can be re-derived on your own corpus.
 
 ### Motion compensation
 
@@ -153,6 +195,17 @@ and Spearman correlations and writes `pairs.csv` and `correlations.csv` under
 Requires `ffmpeg`/`ffprobe` built with `libx265`. Sequences are configured in
 `validation/sequences.json`; override the root with `--sequence-root` or the
 `EVCA_SEQUENCE_ROOT` environment variable.
+
+`validation/bench_pooling.py` compares several EVCA configurations against one identical
+set of encodes, caching them by (sequence, frame, QP):
+
+```bash
+python validation/bench_pooling.py --pairs 16 --qps 22,27,32 --device cuda
+```
+
+It reports mean *within-sequence* PCC as the headline with the per-sequence vector
+beside it. On this corpus the pooled and within-sequence statistics rank the variants
+differently, and the pooled one is dominated by between-sequence offsets.
 
 Interpretation note: with a small corpus the pooled correlation is dominated by
 between-sequence offsets rather than by per-frame prediction quality, and a single

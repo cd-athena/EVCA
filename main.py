@@ -124,16 +124,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     me = parser.add_argument_group(
         'motion estimation',
-        'Five candidates per block -- the collocated block plus four neighbours --\n'
-        'scored by SAD at full resolution, so offsets are literal pixels and every\n'
-        'motion vector the pattern can express is exactly representable.')
-    me.add_argument('--heuristic', default='diamond', choices=['diamond', 'square'],
-                    help='neighbour placement: "diamond" puts them on the axes, '
-                         '"square" on the diagonals')
+        'Candidates per block are scored by SAD against whole-frame shifts of the\n'
+        'reference. --me-offset is always in full-resolution pixels; --temporal-pool\n'
+        'sets the grid those pixels are quantised to, trading vector granularity for\n'
+        'a search that costs four times less per candidate at each step.')
+    me.add_argument('--heuristic', default='diamond',
+                    choices=['diamond', 'square', 'dense'],
+                    help='candidate placement: "diamond" puts four neighbours on the '
+                         'axes, "square" on the diagonals, "dense" fills the whole '
+                         'square so reach and granularity are independent')
     me.add_argument('--me-offset', dest='me_offset', type=positive_int, default=2,
                     metavar='PIXELS',
-                    help='distance from the collocated block to each neighbour; this is '
-                         'the search\'s entire reach, so motion beyond it cannot be tracked')
+                    help='reach of the pattern in full-resolution pixels; motion beyond '
+                         'it cannot be tracked')
+    me.add_argument('--temporal-pool', dest='temporal_pool', type=int, default=1,
+                    choices=[1, 2, 4], metavar='N',
+                    help='box-filter the temporal path down by N before searching and '
+                         'before building the motion-compensated residual; 1 reproduces '
+                         'full-resolution behaviour exactly')
+    me.add_argument('--me-pool', dest='me_pool', type=int, default=None,
+                    choices=[1, 2, 4, 8], metavar='N',
+                    help='pooling factor for the motion search alone; defaults to '
+                         '--temporal-pool, and overriding it decouples the search from '
+                         'the residual path')
 
     mc = parser.add_argument_group(
         'motion compensation',

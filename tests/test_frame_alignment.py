@@ -3,8 +3,8 @@
 The harness merges EVCA row f with the Low-Delay-P bits of encoded frame f, so an
 off-by-one here would silently corrupt every frame-level correlation. This builds a
 sequence with events at known indices and asserts the metrics fire on those exact
-rows. The same probe was verified against x265 LDP bits at 1080p (see
-validation/RESULTS.md, Gate 1): GT bits and EVCA metrics spike on identical indices.
+rows. The same probe was verified against x265 Low-Delay-P bits at 1080p: ground-truth
+bits and EVCA metrics spike on identical frame indices.
 """
 import numpy as np
 import pytest

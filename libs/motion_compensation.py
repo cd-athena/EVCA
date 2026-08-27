@@ -61,9 +61,15 @@ def warp(ref_frame: torch.Tensor, pixel_mvs: torch.Tensor) -> torch.Tensor:
     """
     B, C, H, W = ref_frame.shape
     base_grid, x_norm, y_norm = warp_constants(H, W, ref_frame.device)
-    dx = pixel_mvs[:, 1, :, :] / x_norm
-    dy = pixel_mvs[:, 0, :, :] / y_norm
-    shifted = (base_grid + torch.stack((dx, dy), dim=-1)).clamp_(-1.0, 1.0)
+    # The sampling grid is built in place into one [B, H, W, 2] buffer. The obvious
+    # spelling -- base_grid + torch.stack((dx, dy), dim=-1) -- materialises two
+    # [B, H, W, 2] tensors plus two [B, H, W] temporaries, which is ~5.7 GiB at 2160p
+    # with a 32-frame GOP and is the first thing to exhaust VRAM at high resolution.
+    shifted = torch.empty((B, H, W, 2), device=ref_frame.device, dtype=ref_frame.dtype)
+    torch.div(pixel_mvs[:, 1, :, :], x_norm, out=shifted[..., 0])
+    torch.div(pixel_mvs[:, 0, :, :], y_norm, out=shifted[..., 1])
+    shifted += base_grid
+    shifted.clamp_(-1.0, 1.0)
     return F.grid_sample(ref_frame, shifted, mode='bilinear',
                          padding_mode='zeros', align_corners=True)
 
