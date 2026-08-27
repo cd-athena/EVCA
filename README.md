@@ -71,12 +71,12 @@ defaults and grouped by topic. The tables below mirror it.
 
 The search scores candidates per block by SAD against whole-frame shifts of the
 reference: the collocated block plus four neighbours at `--me-offset` pixels, or the
-whole square with `--heuristic dense`. `--me-offset` is always denominated in
+whole square with `--heuristic grid`. `--me-offset` is always denominated in
 full-resolution pixels, whatever grid the search runs on.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--heuristic` | `diamond` | `diamond` puts four neighbours on the axes, `square` on the diagonals, `dense` fills the whole `(2r+1)²` square so reach and granularity are independent. |
+| `--heuristic` | `diamond` | `diamond` puts four neighbours on the axes, `square` on the diagonals, `grid` fills the whole `(2r+1)²` square so reach and granularity are independent. |
 | `--me-offset` | `2` | Reach of the pattern in full-resolution pixels (≥ 1). Motion beyond it cannot be tracked. |
 | `--temporal-pool` | `1` | Box-filter the temporal path down by N before searching and before building the motion-compensated residual. |
 | `--me-pool` | *(= `--temporal-pool`)* | Pooling factor for the search alone; set it to decouple the search from the residual path. |
@@ -90,7 +90,7 @@ spatial metrics (`B`, `SC`, `TC`, `TC2`) are untouched and stay full-resolution.
 Each step of N quarters the cost of every search candidate and of the compensation
 warp, and quantises motion vectors onto an N-pixel grid. `--me-offset` stays in source
 pixels, so a wider reach costs nothing extra: at `--temporal-pool 4` a `--me-offset 8`
-dense pattern covers ±8 px with the same 25 candidates that would cover ±2 px at full
+`grid` pattern covers ±8 px with the same 25 candidates that would cover ±2 px at full
 resolution.
 
 `--temporal-pool 1` (the default) reproduces full-resolution behaviour byte for byte.

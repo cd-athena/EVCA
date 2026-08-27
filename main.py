@@ -129,9 +129,9 @@ def build_parser() -> argparse.ArgumentParser:
         'sets the grid those pixels are quantised to, trading vector granularity for\n'
         'a search that costs four times less per candidate at each step.')
     me.add_argument('--heuristic', default='diamond',
-                    choices=['diamond', 'square', 'dense'],
+                    choices=['diamond', 'square', 'grid'],
                     help='candidate placement: "diamond" puts four neighbours on the '
-                         'axes, "square" on the diagonals, "dense" fills the whole '
+                         'axes, "square" on the diagonals, "grid" fills the whole '
                          'square so reach and granularity are independent')
     me.add_argument('--me-offset', dest='me_offset', type=positive_int, default=2,
                     metavar='PIXELS',

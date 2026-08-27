@@ -45,10 +45,10 @@ VARIANTS = {
     'Q0_current':      [],
     'Q1_search_pool2': ['--me-pool', '2'],
     'Q3_pool2':        ['--temporal-pool', '2'],
-    'Q4_pool2_reach4': ['--temporal-pool', '2', '--heuristic', 'dense', '--me-offset', '4'],
+    'Q4_pool2_reach4': ['--temporal-pool', '2', '--heuristic', 'grid', '--me-offset', '4'],
     'Q5_resid2_me4':   ['--temporal-pool', '2', '--me-pool', '4',
-                        '--heuristic', 'dense', '--me-offset', '8'],
-    'Q6_pool4_reach8': ['--temporal-pool', '4', '--heuristic', 'dense', '--me-offset', '8'],
+                        '--heuristic', 'grid', '--me-offset', '8'],
+    'Q6_pool4_reach8': ['--temporal-pool', '4', '--heuristic', 'grid', '--me-offset', '8'],
 }
 
 METRIC = 'TC_MC'

@@ -86,8 +86,8 @@ class TemporalState:
         return self.current_frame - self.mc_frame
 
 
-PATTERN_SHAPES = ('diamond', 'square', 'dense')
-# The shapes that are five candidates by construction; `dense` is (2r+1)^2 instead.
+PATTERN_SHAPES = ('diamond', 'square', 'grid')
+# The shapes that are five candidates by construction; `grid` is (2r+1)^2 instead.
 SPARSE_PATTERN_SHAPES = ('diamond', 'square')
 
 
@@ -107,7 +107,7 @@ def search_pattern(shape: str, offset: int, pool: int = 1) -> list:
     `offset` is the pattern's reach in full-resolution pixels; at `pool > 1` it is
     quantised onto the pooled grid, so the search's granularity is `pool` pixels and
     its reach stays `offset` pixels. `diamond` puts four neighbours on the axes,
-    `square` on the diagonals, and `dense` fills the whole (2r+1)^2 square, which is
+    `square` on the diagonals, and `grid` fills the whole (2r+1)^2 square, which is
     what lets reach and granularity be chosen independently.
     """
     if offset < 1:
@@ -119,7 +119,7 @@ def search_pattern(shape: str, offset: int, pool: int = 1) -> list:
         return [(0, 0), (-r, 0), (r, 0), (0, -r), (0, r)]
     if shape == 'square':
         return [(0, 0), (-r, -r), (-r, r), (r, -r), (r, r)]
-    if shape == 'dense':
+    if shape == 'grid':
         return [(dy, dx) for dy in range(-r, r + 1) for dx in range(-r, r + 1)]
     raise ValueError(f'unknown search pattern: {shape!r}; choose from {PATTERN_SHAPES}')
 
@@ -192,7 +192,7 @@ class PatternBlockMatcher(nn.Module):
         return mvs, best_sad.unsqueeze(1)
 
 
-# Retired name kept working: the class is no longer sparse-only now that `dense` is a
+# Retired name kept working: the class is no longer sparse-only now that `grid` is a
 # pattern shape, but external callers should not have to care.
 SparsePatternBlockMatcher = PatternBlockMatcher
 

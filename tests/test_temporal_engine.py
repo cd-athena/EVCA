@@ -83,10 +83,10 @@ def test_quantised_patterns_stay_symmetric(shape, pool):
         assert (-dy, -dx) in pattern, f'{(dy, dx)} has no opposite in {pattern}'
 
 
-def test_dense_pattern_fills_the_square():
-    assert len(search_pattern('dense', 8, 4)) == 25        # r = 2 -> 5x5
-    assert len(search_pattern('dense', 2, 1)) == 25        # r = 2 -> 5x5
-    assert (0, 0) in search_pattern('dense', 8, 4)
+def test_grid_pattern_fills_the_square():
+    assert len(search_pattern('grid', 8, 4)) == 25        # r = 2 -> 5x5
+    assert len(search_pattern('grid', 2, 1)) == 25        # r = 2 -> 5x5
+    assert (0, 0) in search_pattern('grid', 8, 4)
 
 
 def test_pooled_search_reports_vectors_on_the_pooled_grid():
