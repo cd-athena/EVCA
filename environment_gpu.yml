@@ -1,5 +1,7 @@
 name: EVCA-gpu
 channels:
+  - pytorch
+  - nvidia
   - conda-forge
 dependencies:
   - python==3.11.7
@@ -9,10 +11,10 @@ dependencies:
   - matplotlib
   - pywavelets
   - setuptools<81
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda
   - pip
   - pip:
-      - --extra-index-url https://download.pytorch.org/whl/cu128
-      - torch
-      - torchvision
-      - torchaudio
       - pytorch-wavelets
