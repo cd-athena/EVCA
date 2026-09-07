@@ -1,0 +1,37 @@
+{
+  "_comment": "Test sequences for validation/correlate.py. Paths resolve against 'sequence_root' unless absolute; override with EVCA_SEQUENCE_ROOT or --sequence-root. Sequences whose file is absent are skipped with a warning.",
+  "sequence_root": "/home/albert/Desktop/test_sequences",
+  "qp": 22,
+  "sequences": [
+    {
+      "name": "Beauty",
+      "path": "Beauty_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
+    },
+    {
+      "name": "Bosphorus",
+      "path": "Bosphorus_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
+    },
+    {
+      "name": "HoneyBee",
+      "path": "HoneyBee_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
+    },
+    {
+      "name": "ReadySteadyGo",
+      "path": "ReadySteadyGo_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
+    },
+    {
+      "name": "ShakeNDry",
+      "path": "ShakeNDry_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
+    },
+    {
+      "name": "YachtRide",
+      "path": "YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+      "res": "1920x1080", "fps": 120, "pix_fmt": "yuv420", "bit_depth": 8
+    }
+  ]
+}

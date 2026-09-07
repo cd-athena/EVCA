@@ -1,0 +1,44 @@
+name: EVCA Continuous Integration
+
+# Trigger the workflow on pushes to main, or any Pull Request targeting main
+on:
+  push:
+    branches: [ main, evca-simplify-codebase ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build & Test (Ubuntu, Python 3.11)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip' # Enable native pip caching to speed up workflow
+
+    - name: Install Dependencies (CPU-Optimized)
+      run: |
+        python -m pip install --upgrade pip
+
+        # 1. Install CPU-only PyTorch first to avoid the 2.5GB CUDA download.
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+        # 2. Freeze the CPU versions into a constraints file. 
+        pip freeze | grep -E '^(torch|torchvision|torchaudio)==' > constraints.txt
+
+        # 3. Clean requirements.txt so we don't have hardcoded conflicts.
+        grep -vE '^(torch|torchvision|torchaudio|typing_extensions|typing-extensions|sympy)([=><!~]|$)' requirements.txt > req_clean.txt
+
+        # Install the rest of the EVCA requirements, plus the test runner
+        pip install -r req_clean.txt -c constraints.txt
+        pip install pytest
+
+    - name: Run test suite
+      run: |
+        python -m pytest tests/ -v

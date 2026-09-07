@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -57,7 +58,13 @@ def SITI(args, input_list, device):
         directory = './' if directory == '' else directory
         if not os.path.exists(directory):
             os.makedirs(directory, exist_ok=True)
-        df.to_csv(f'{directory}/{file_name[:-4]}_SITI.csv', index=False)
+        # df.to_csv(f'{directory}/{file_name[:-4]}_SITI.csv', index=False)
+        if args.dir:
+            final_csv_path = f'{directory}/{file_name[:-4]}_SITI_{Path(file).name[:-4]}.csv'
+        else:
+            final_csv_path = args.csv
+        df.to_csv(final_csv_path, index=False)
+        
         if args.block_info:
             print('block information is not available for SITI method.')
         if args.plot_info:
